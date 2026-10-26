@@ -282,12 +282,8 @@ export class Aquarium {
       if (this.frozen) this.drawAll(0)
     })
     cv.addEventListener('pointerleave', () => {
+      // the glass goes away; the panel keeps the last swimmer so it can be read
       this.pointer = null
-      if (this.hovered !== null) {
-        this.hovered = null
-        this.syncPanel()
-        this.emit()
-      }
       if (this.frozen) this.drawAll(0)
     })
     cv.addEventListener('pointerdown', (e) => {
@@ -384,6 +380,7 @@ export class Aquarium {
     const pal = this.o.palette()
     const { ctx, cam, dpr } = this
     if (!this.tankVisible && !this.frozen) {
+      this.drawCloseup(pal, lag)
       this.drawMinis(pal, lag)
       return
     }
