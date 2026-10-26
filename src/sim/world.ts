@@ -28,7 +28,7 @@ const A: EpisodeSpec = {
     [1.0, 2.0], // behind: a real turn
     [-2.0, -1.5], // back across
   ],
-  steps: 9 * 60,
+  steps: 12 * 60,
 }
 const mirror = (e: EpisodeSpec): EpisodeSpec => ({
   goals: e.goals.map(([x, y]) => [x, -y] as const),

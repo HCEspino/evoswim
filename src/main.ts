@@ -5,6 +5,7 @@
  *   ?evolve=G   run G generations synchronously before the first frame
  *   ?mode=lines|cloud
  *   ?theme=light|dark
+ *   ?speed=S    sim seconds per wall second (default 0.45)
  */
 import champion from './evolve/champion.json'
 import { Evolution } from './evolve/es'
@@ -25,6 +26,8 @@ const themeParam = q.get('theme')
 if (themeParam === 'light' || themeParam === 'dark') document.documentElement.dataset.theme = themeParam
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+/** Simulation seconds per wall second: the body length and time unit are arbitrary, and the swim reads better unhurried. */
+const TIME_SCALE = Number(q.get('speed') ?? 0.45) || 0.45
 
 const canvas = document.getElementById('c') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
@@ -106,7 +109,7 @@ function frame(now: number): void {
   rafId = 0
   const dtWall = Math.min(0.1, (now - last) / 1000)
   last = now
-  acc += dtWall
+  acc += dtWall * TIME_SCALE
   let steps = 0
   while (acc >= DT && steps < 4) {
     scene.step(DT)

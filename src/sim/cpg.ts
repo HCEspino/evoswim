@@ -46,7 +46,7 @@ export const GENE_NAMES = [
 
 /** [min, max] per gene, in the order of GENE_NAMES. */
 export const GENE_RANGES: ReadonlyArray<readonly [number, number]> = [
-  [0.2, 3.0], // freq
+  [0.2, 1.5], // freq
   [0.0, 0.6], // ampHead
   [0.0, 1.1], // ampTail
   [0.3, 3.0], // envPow
