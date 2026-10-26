@@ -63,6 +63,18 @@ function hash2(a: number, b: number): number {
 // light direction, normalised: from the top left, above the plane
 const LX = -0.42, LY = -0.56, LZ = 0.71
 
+interface CreaturePalette {
+  key: string
+  palette: RGB[]
+  colA: RGB
+  colB: RGB
+}
+
+export interface SceneLayer {
+  scene: Scene
+  points: number
+}
+
 export class PixelRenderer {
   /** CSS pixels per cell */
   cell = 2
@@ -70,73 +82,104 @@ export class PixelRenderer {
   private sumR = new Float32Array(0)
   private sumG = new Float32Array(0)
   private sumB = new Float32Array(0)
+  /** which layer put the most points in a cell: its palette dithers the cell */
+  private owner = new Uint8Array(0)
+  private ownerCount = new Float32Array(0)
+  private layerCount = new Float32Array(0)
   private gw = 0
   private gh = 0
   private img: ImageData | null = null
   private readonly scratch: HTMLCanvasElement
-  private paletteKey = ''
-  private palette: RGB[] = []
-  private colA: RGB = [0, 0, 0]
-  private colB: RGB = [0, 0, 0]
+  private readonly palettes = new Map<string, CreaturePalette>()
   private ink: RGB = [0, 0, 0]
   private paper: RGB = [255, 255, 255]
+  private themeKey = ''
 
   constructor(scratch: HTMLCanvasElement) {
     this.scratch = scratch
   }
 
-  private preparePalette(pl: Plumage, pal: Palette): void {
+  private creaturePalette(pl: Plumage, pal: Palette): CreaturePalette {
     const key = `${pal.mode}|${pl.hueA.toFixed(0)}|${pl.hueB.toFixed(0)}|${pl.sat.toFixed(2)}`
-    if (key === this.paletteKey) return
-    this.paletteKey = key
-    this.ink = hexToRgb(pal.ink)
-    this.paper = hexToRgb(pal.paper)
+    const hit = this.palettes.get(key)
+    if (hit) return hit
     const dark = pal.mode === 'dark'
-    this.colA = hslToRgb(pl.hueA, pl.sat, dark ? 0.6 : 0.4)
-    this.colB = hslToRgb(pl.hueB, pl.sat * 0.85, dark ? 0.72 : 0.52)
-    this.palette = [
-      this.paper,
-      this.ink,
-      this.colA,
-      this.colB,
-      mix(this.ink, this.colA, 0.5),
-      mix(this.ink, this.colB, 0.5),
-      mix(this.paper, this.colA, 0.5),
-      mix(this.paper, this.colB, 0.5),
-      mix(this.colA, this.colB, 0.5),
-      mix(this.paper, this.ink, 0.5),
-    ]
+    const colA = hslToRgb(pl.hueA, pl.sat, dark ? 0.6 : 0.4)
+    const colB = hslToRgb(pl.hueB, pl.sat * 0.85, dark ? 0.72 : 0.52)
+    const cp: CreaturePalette = {
+      key,
+      colA,
+      colB,
+      palette: [
+        this.paper,
+        this.ink,
+        colA,
+        colB,
+        mix(this.ink, colA, 0.5),
+        mix(this.ink, colB, 0.5),
+        mix(this.paper, colA, 0.5),
+        mix(this.paper, colB, 0.5),
+        mix(colA, colB, 0.5),
+        mix(this.paper, this.ink, 0.5),
+      ],
+    }
+    if (this.palettes.size > 64) this.palettes.clear()
+    this.palettes.set(key, cp)
+    return cp
   }
 
   draw(ctx: CanvasRenderingContext2D, scene: Scene, cam: Camera, pal: Palette, dpr: number, lag = 0, points = 42000): void {
+    this.drawLayers(ctx, [{ scene, points }], cam, pal, dpr, lag)
+  }
+
+  /** Several swimmers in one tank; each cell is dithered with the palette of the swimmer that dominates it. */
+  drawLayers(ctx: CanvasRenderingContext2D, layers: SceneLayer[], cam: Camera, pal: Palette, dpr: number, lag = 0, density = 1): void {
     const gw = Math.ceil(cam.width / this.cell)
     const gh = Math.ceil(cam.height / this.cell)
     if (gw !== this.gw || gh !== this.gh) {
       this.gw = gw
       this.gh = gh
-      this.count = new Float32Array(gw * gh)
-      this.sumR = new Float32Array(gw * gh)
-      this.sumG = new Float32Array(gw * gh)
-      this.sumB = new Float32Array(gw * gh)
+      const n = gw * gh
+      this.count = new Float32Array(n)
+      this.sumR = new Float32Array(n)
+      this.sumG = new Float32Array(n)
+      this.sumB = new Float32Array(n)
+      this.owner = new Uint8Array(n)
+      this.ownerCount = new Float32Array(n)
+      this.layerCount = new Float32Array(n)
       this.scratch.width = gw
       this.scratch.height = gh
       this.img = null
     }
+    const themeKey = `${pal.mode}|${pal.ink}|${pal.paper}`
+    if (themeKey !== this.themeKey) {
+      this.themeKey = themeKey
+      this.ink = hexToRgb(pal.ink)
+      this.paper = hexToRgb(pal.paper)
+      this.palettes.clear()
+    }
     const count = this.count, sumR = this.sumR, sumG = this.sumG, sumB = this.sumB
-    count.fill(0); sumR.fill(0); sumG.fill(0); sumB.fill(0)
-    const sw = scene.swimmer
-    const pl = sw.morph.plumage
-    this.preparePalette(pl, pal)
-    const ink = this.ink, paper = this.paper, colA = this.colA, colB = this.colB
+    const owner = this.owner, ownerCount = this.ownerCount, layerCount = this.layerCount
+    count.fill(0); sumR.fill(0); sumG.fill(0); sumB.fill(0); ownerCount.fill(0); owner.fill(0)
+    const ink = this.ink, paper = this.paper
     const scale = cam.scale / this.cell
     const ox = (cam.width / 2 - cam.cx * cam.scale) / this.cell
     const oy = (cam.height / 2 - cam.cy * cam.scale) / this.cell
-    const t = scene.t
-    const pattern = pl.pattern, pf = pl.patFreq, pc = pl.patContrast, colourAmt = pl.colour
-    forEachPoint(scene.history, sw.chains, sw.segLen, pl, t, { points, wakeFrames: 300, lag }, (x, y, s, th, age, nx, ny, ci) => {
-      const gx = Math.floor(x * scale + ox)
-      const gy = Math.floor(y * scale + oy)
-      if (gx < 0 || gy < 0 || gx >= gw || gy >= gh) return
+    const layerPalettes: CreaturePalette[] = []
+    layers.forEach((layer, li) => {
+      const { scene, points } = layer
+      const sw = scene.swimmer
+      const pl = sw.morph.plumage
+      const cp = this.creaturePalette(pl, pal)
+      layerPalettes.push(cp)
+      const colA = cp.colA, colB = cp.colB
+      const t = scene.t
+      const pattern = pl.pattern, pf = pl.patFreq, pc = pl.patContrast, colourAmt = pl.colour
+      if (layers.length > 1) layerCount.fill(0)
+      forEachPoint(scene.history, sw.chains, sw.segLen, pl, t, { points, wakeFrames: 300, lag }, (x, y, s, th, age, nx, ny, ci) => {
+        const gx = Math.floor(x * scale + ox)
+        const gy = Math.floor(y * scale + oy)
+        if (gx < 0 || gy < 0 || gx >= gw || gy >= gh) return
       // texture in surface coordinates
       let tex: number
       if (pattern === 0) tex = 0.5 + 0.5 * Math.sin(2 * Math.PI * pf * s + ci * 1.7)
@@ -158,17 +201,24 @@ export class PixelRenderer {
       r = Math.min(255, r * shade) * (1 - fade) + paper[0] * fade
       g = Math.min(255, g * shade) * (1 - fade) + paper[1] * fade
       b = Math.min(255, b * shade) * (1 - fade) + paper[2] * fade
-      const idx = gy * gw + gx
-      count[idx] += 1
-      sumR[idx] += r
-      sumG[idx] += g
-      sumB[idx] += b
+        const idx = gy * gw + gx
+        count[idx] += 1
+        sumR[idx] += r
+        sumG[idx] += g
+        sumB[idx] += b
+        if (layers.length > 1) {
+          const lc = (layerCount[idx] += 1)
+          if (lc > ownerCount[idx]) {
+            ownerCount[idx] = lc
+            owner[idx] = li
+          }
+        }
+      })
     })
     const sctx = this.scratch.getContext('2d')!
     if (!this.img) this.img = sctx.createImageData(gw, gh)
     const data = this.img.data
-    const k = 0.32 / (this.cell * this.cell / 4)
-    const palette = this.palette
+    const k = (0.32 * density) / ((this.cell * this.cell) / 4)
     const spread = 48 // dither amplitude in 8-bit units
     for (let y = 0; y < gh; y++) {
       const row = BAYER8[y & 7]
@@ -185,7 +235,8 @@ export class PixelRenderer {
         const r = paper[0] + (sumR[i] / n - paper[0]) * cov + d * spread
         const g = paper[1] + (sumG[i] / n - paper[1]) * cov + d * spread
         const b = paper[2] + (sumB[i] / n - paper[2]) * cov + d * spread
-        // nearest palette colour
+        // nearest colour in the owning swimmer's palette
+        const palette = layerPalettes[owner[i]].palette
         let best = 0, bd = Infinity
         for (let p = 0; p < palette.length; p++) {
           const pc_ = palette[p]

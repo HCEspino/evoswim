@@ -1,9 +1,8 @@
 /**
- * Local demo page: a thin host around the TankWall controller.
- *   ?creature=I   zoom on archive cell I
- *   ?route=eight|oval|silk   the closed route every tank follows (default eight)
- *   ?t=N          freeze every tank at N seconds, no loop (screenshots)
- *   ?seed=N       scene + search seed (default 7)
+ * Local demo page: a thin host around the Aquarium controller.
+ *   ?t=N          freeze at N seconds, no loop (screenshots)
+ *   ?seed=N       cast routes + search seed (default 7)
+ *   ?cast=N       how many swimmers (default 10)
  *   ?theme=light|dark
  *   ?speed=S      sim seconds per wall second (default 0.45)
  *   ?search=0     do not run the archive search worker
@@ -11,20 +10,15 @@
  */
 import archiveJson from './evolve/archive.json'
 import type { ArchiveJson } from './evolve/map'
-import { routeByName } from './sim/route'
 import { DARK, LIGHT, type Palette } from './render/palette'
-import { TankWall, kEvals } from './app/tanks'
+import { Aquarium, kEvals } from './app/aquarium'
 
 const q = new URLSearchParams(location.search)
 const themeParam = q.get('theme')
 if (themeParam === 'light' || themeParam === 'dark') document.documentElement.dataset.theme = themeParam
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
 const frozenAt = q.has('t') ? Number(q.get('t')) : reduced ? 12 : null
-
 const el = (id: string) => document.getElementById(id)!
-const wallEl = el('wall'), zoomEl = el('zoom')
-const backBtn = el('back') as HTMLButtonElement
-const searchBtn = el('search') as HTMLButtonElement
 
 function palette(): Palette {
   const dark =
@@ -33,18 +27,11 @@ function palette(): Palette {
   return dark ? DARK : LIGHT
 }
 
-function showZoom(on: boolean): void {
-  zoomEl.classList.toggle('on', on)
-  wallEl.classList.toggle('off', on)
-  backBtn.hidden = !on
-}
-
-const wall = new TankWall({
-  wall: wallEl,
-  big: el('big'),
-  strip: el('strip'),
+const aq = new Aquarium({
+  canvas: el('tank') as HTMLCanvasElement,
+  lineage: el('lineage'),
   archive: archiveJson as ArchiveJson,
-  route: routeByName(q.get('route')),
+  castSize: Number(q.get('cast') ?? 10) || 10,
   seed: Number(q.get('seed') ?? 7) || 7,
   timeScale: Number(q.get('speed') ?? 0.45) || 0.45,
   frozenAt,
@@ -52,52 +39,32 @@ const wall = new TankWall({
   palette,
   makeWorker: () => new Worker(new URL('./evolve/mapWorker.ts', import.meta.url), { type: 'module' }),
   onState: (s) => {
-    el('arch').textContent = `${s.tanks} tanks · ${kEvals(s.evals)} evals${s.evalsPerSec ? ` · ${Math.round(s.evalsPerSec)}/s` : ''}`
-    searchBtn.textContent = s.searching ? 'searching' : 'search paused'
-    searchBtn.setAttribute('aria-pressed', String(s.searching))
-    el('who').textContent = s.zoomedIndex === null ? '' : `cell ${s.zoomedIndex}`
-    const c = s.zoomed
-    el('meta').textContent = c
-      ? `${c.limbCount} limb${c.limbCount === 1 ? '' : 's'} · longest ${c.limbReach.toFixed(2)} · fit ${c.fitness.toFixed(1)} · ${c.freq.toFixed(2)} Hz · found at ${kEvals(c.found)} evals`
-      : ''
+    el('hint').textContent = s.fine ? 'Hover a swimmer. Click to keep it.' : 'Tap a swimmer to keep it.'
+    el('arch').textContent = `${kEvals(s.evals)} evaluations${s.evalsPerSec ? `, ${Math.round(s.evalsPerSec)} a second` : ''}`
+    const b = el('search')
+    b.textContent = s.searching ? 'pause search' : 'resume search'
+    b.setAttribute('aria-pressed', String(s.searching))
+    const c = s.shown
+    el('empty').hidden = !!c
+    for (const id of ['lines', 'h-move', 'formula', 'h-lin']) el(id).hidden = !c
+    if (c) {
+      el('lines').innerHTML = [
+        ['limbs', String(c.limbCount)],
+        ['longest', `${c.limbReach.toFixed(2)} body lengths`],
+        ['fitness', c.fitness.toFixed(2)],
+        ['beat', `${c.freq.toFixed(2)} Hz`],
+        ['found', `after ${kEvals(c.found)} evaluations`],
+        ['state', s.pinned !== null ? 'kept, click again to let go' : 'under the glass'],
+      ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
+      el('formula').textContent = s.formula
+    }
   },
-  onZoomRequest: (i) => openZoom(i, true),
 })
-
-function openZoom(i: number, push: boolean): void {
-  if (!wall.zoom(i)) return
-  showZoom(true)
-  if (push) {
-    const p = new URLSearchParams(location.search)
-    p.set('creature', String(i))
-    history.pushState({}, '', `?${p}`)
-  }
-  wall.relayout()
-  window.scrollTo({ top: 0 })
-}
-function closeZoom(push: boolean): void {
-  wall.unzoom()
-  showZoom(false)
-  if (push) {
-    const p = new URLSearchParams(location.search)
-    p.delete('creature')
-    const s = p.toString()
-    history.pushState({}, '', location.pathname + (s ? `?${s}` : ''))
-  }
-}
-backBtn.addEventListener('click', () => closeZoom(true))
-window.addEventListener('popstate', () => {
-  const c = new URLSearchParams(location.search).get('creature')
-  if (c !== null && wall.cells[Number(c)]) openZoom(Number(c), false)
-  else closeZoom(false)
-})
-searchBtn.addEventListener('click', () => wall.setSearching(!wall.state().searching))
+el('search').addEventListener('click', () => aq.setSearching(!aq.state().searching))
 el('theme').addEventListener('click', () => {
   document.documentElement.dataset.theme = palette().mode === 'dark' ? 'light' : 'dark'
-  wall.redraw()
+  aq.redraw()
 })
-new MutationObserver(() => wall.redraw()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
-window.addEventListener('resize', () => wall.relayout())
-
-wall.setSearching(q.get('search') !== '0' && frozenAt === null)
-if (q.has('creature') && wall.cells[Number(q.get('creature'))]) openZoom(Number(q.get('creature')), false)
+new MutationObserver(() => aq.redraw()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+window.addEventListener('resize', () => aq.resize())
+aq.setSearching(q.get('search') !== '0' && frozenAt === null)

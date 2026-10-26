@@ -6,64 +6,50 @@
     <meta name="color-scheme" content="light dark" />
     <title>evoswim</title>
     <style>
-      :root {
-        --paper: #f6f6f3;
-        --ink: #1b1d1f;
-        --ink-2: #6b6e72;
-        --accent: #c43c2c;
-        --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root:not([data-theme="light"]) { --paper: #141516; --ink: #e9e7e2; --ink-2: #8d8b86; --accent: #e2543f; }
-      }
-      :root[data-theme="dark"] { --paper: #141516; --ink: #e9e7e2; --ink-2: #8d8b86; --accent: #e2543f; }
+      :root { --paper: #f6f6f3; --ink: #1b1d1f; --ink-2: #6b6e72; --rule: #d4d4ce; --accent: #c43c2c; --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+      @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --paper: #141516; --ink: #e9e7e2; --ink-2: #8d8b86; --rule: #2d2f31; --accent: #e2543f; } }
+      :root[data-theme="dark"] { --paper: #141516; --ink: #e9e7e2; --ink-2: #8d8b86; --rule: #2d2f31; --accent: #e2543f; }
       html, body { margin: 0; background: var(--paper); color: var(--ink); }
-      body { font: 13px/1.4 var(--mono); min-height: 100vh; }
-      .bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px; background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); }
-      .stat { color: var(--ink-2); white-space: nowrap; }
-      .stat b { color: var(--ink); font-weight: 500; }
-      button { font: inherit; color: var(--ink); background: transparent; border: 1px solid color-mix(in srgb, var(--ink) 35%, transparent); border-radius: 3px; padding: 3px 9px; cursor: pointer; }
-      button:hover { border-color: var(--ink); }
-      button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+      body { font: 13px/1.45 var(--mono); }
+      .bar { display: flex; gap: 20px; align-items: baseline; padding: 10px 16px; border-bottom: 1px solid var(--rule); }
+      .muted { color: var(--ink-2); }
+      button { font: inherit; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: .18em; }
+      button:hover { text-decoration-color: var(--accent); }
       .spacer { flex: 1; }
-      main { padding: 16px; }
-      /* the wall: one tank per body plan */
-      .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
-      .tank { display: flex; flex-direction: column; gap: 4px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); border-radius: 4px; padding: 6px; background: transparent; color: inherit; font: inherit; text-align: left; }
-      .tank:hover { border-color: color-mix(in srgb, var(--ink) 45%, transparent); }
-      .tank canvas { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: 2px; }
-      .tank .tank-cap { color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      /* zoomed view */
-      .zoom { display: none; flex-direction: column; gap: 14px; }
-      .zoom.on { display: flex; }
-      .wall.off { display: none; }
-      .zoom .big canvas { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 72vh; cursor: crosshair; border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); border-radius: 4px; }
-      .zoom .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-      .strip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
-      .strip .tank { flex: 0 0 200px; cursor: default; }
-      .strip .tank.tank-now { border-color: var(--accent); }
-      .zoom .big .tank { padding: 0; border: 0; cursor: crosshair; }
-      .legend { color: var(--ink-2); font-size: 11px; }
+      main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 16px; }
+      canvas#tank { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--rule); border-radius: 2px; }
+      .panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+      .panel dl { display: grid; grid-template-columns: 8ch 1fr; row-gap: 4px; column-gap: 12px; margin: 0; }
+      .panel dt { color: var(--ink-2); }
+      .panel dd { margin: 0; }
+      .panel pre { margin: 0; white-space: pre; overflow-x: auto; font: inherit; font-size: 12px; line-height: 1.5; color: var(--ink); }
+      .panel h2 { font: inherit; font-weight: 600; margin: 0; }
+      .lineage { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .mini canvas { display: block; width: 100%; aspect-ratio: 16 / 10; border: 1px solid var(--rule); border-radius: 2px; }
+      .mini-now canvas { border-color: var(--accent); }
+      .mini-cap { font-size: 11px; color: var(--ink-2); margin-top: 3px; }
+      .empty { color: var(--ink-2); }
+      @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
     <div class="bar">
-      <button id="back" hidden>← all tanks</button>
-      <button id="search" aria-pressed="true">searching</button>
-      <span class="stat">archive <b id="arch">–</b></span>
-      <span class="stat" id="who"></span>
+      <span class="muted" id="arch"></span>
+      <button id="search" aria-pressed="true">pause search</button>
       <span class="spacer"></span>
-      <span class="legend" id="hint">click a tank to zoom · click in a tank to call the swimmer</span>
+      <span class="muted" id="hint">Hover a swimmer. Click to keep it.</span>
       <button id="theme">theme</button>
     </div>
     <main>
-      <div class="wall" id="wall"></div>
-      <section class="zoom" id="zoom">
-        <div class="big" id="big"></div>
-        <div class="meta stat" id="meta"></div>
-        <div class="legend">progression · first to now</div>
-        <div class="strip" id="strip"></div>
-      </section>
+      <canvas id="tank" aria-label="a tank of evolved swimmers"></canvas>
+      <aside class="panel" id="panel">
+        <div class="empty" id="empty">Nothing under the glass yet.</div>
+        <dl id="lines" hidden></dl>
+        <h2 id="h-move" hidden>Movement</h2>
+        <pre id="formula" hidden></pre>
+        <h2 id="h-lin" hidden>Lineage</h2>
+        <div class="lineage" id="lineage"></div>
+      </aside>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

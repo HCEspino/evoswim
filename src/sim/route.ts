@@ -97,3 +97,64 @@ export function nearest(r: Route, x: number, y: number, uPrev: number, window = 
   }
   return bestU
 }
+
+/** A loop placed anywhere: an eight or an oval, scaled, rotated and offset. */
+export function makeLoop(kind: 'eight' | 'oval', cx: number, cy: number, a: number, b: number, rot: number, phase = 0): Route {
+  const cr = Math.cos(rot), sr = Math.sin(rot)
+  return {
+    name: kind,
+    point: (u) => {
+      const v = u + phase
+      const x = kind === 'eight' ? a * Math.sin(v) : a * Math.cos(v)
+      const y = kind === 'eight' ? b * Math.sin(2 * v) : b * Math.sin(v)
+      return [cx + x * cr - y * sr, cy + x * sr + y * cr]
+    },
+  }
+}
+
+/**
+ * Routes for a cast sharing one tank of `worldW` × `worldH` body lengths:
+ * loops of different shapes and sizes, spread across the tank, every one
+ * gentle enough to follow (eights keep b/a ≈ 0.38, ovals b/a ≈ 0.62).
+ */
+export function castRoutes(n: number, worldW: number, worldH: number, rand: () => number): Route[] {
+  const out: Route[] = []
+  const cols = Math.ceil(Math.sqrt(n * (worldW / worldH)))
+  const rows = Math.ceil(n / cols)
+  const cellW = worldW / cols
+  const cellH = worldH / rows
+  for (let i = 0; i < n; i++) {
+    const c = i % cols
+    const r = Math.floor(i / cols)
+    const cx = -worldW / 2 + cellW * (c + 0.5) + (rand() - 0.5) * cellW * 0.5
+    const cy = -worldH / 2 + cellH * (r + 0.5) + (rand() - 0.5) * cellH * 0.5
+    let kind: 'eight' | 'oval' = rand() < 0.6 ? 'eight' : 'oval'
+    let a = kind === 'eight' ? 2.1 + 0.6 * rand() : 1.7 + 0.6 * rand()
+    let ratio = kind === 'eight' ? 0.42 : 0.62
+    const rot = (rand() - 0.5) * 0.9
+    const phase = rand() * 2 * Math.PI
+    const fits = (r: Route) => {
+      for (let k = 0; k < 48; k++) {
+        const [x, y] = r.point((k / 48) * TWO_PI)
+        if (Math.abs(x) > worldW / 2 || Math.abs(y) > worldH / 2) return false
+      }
+      return true
+    }
+    // shrink until the loop sits inside the tank; if that makes it too tight
+    // to follow, round it into an oval instead
+    let route = makeLoop(kind, cx, cy, a, a * ratio, rot, phase)
+    for (let tries = 0; tries < 30 && !(fits(route) && minTurnRadius(route, 180) >= 0.5); tries++) {
+      if (!fits(route)) a *= 0.93
+      else if (kind === 'eight') {
+        kind = 'oval'
+        ratio = 0.7
+      } else ratio = Math.min(1, ratio + 0.08)
+      route = makeLoop(kind, cx, cy, a, a * ratio, rot, phase)
+    }
+    out.push(route)
+  }
+  return out
+}
+
+/** A compact oval for the small lineage tanks. */
+export const MINI_ROUTE: Route = makeLoop('oval', 0, 0, 1.55, 0.95, 0)
