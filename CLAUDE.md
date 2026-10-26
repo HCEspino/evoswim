@@ -4,12 +4,36 @@ Dedicated Claude session for **evoswim**, working in `/data/projects/evoswim`. T
 memory loop and the `memory` skill apply (defined in `~/.claude`); the shared
 memory store is the vault at `/data/vault`.
 
+## What this is
+
+An evolved 2D swimmer: a segmented body driven by a central pattern generator in
+a resistive-drag fluid, with the controller parameters optimized by an evolution
+strategy to swim toward a goal, rendered as a low-alpha point cloud in the style
+of @yuruyurau's tweet-sized sketches. **Read `BRIEF.md` first**: it is the starting
+prompt and the build order (physics → evolution → skin). `reference/` holds the
+visual target.
+
+It becomes a dedicated page on harrisonespino.com (`/data/projects/personal-website`)
+but is developed here first, locally, framework-free.
+
 ## Memory focus for this project
-- **Read first:** notes in `/data/vault/03-Memory/` and
-  `/data/vault/02-Knowledge/` related to evoswim (ripgrep before starting).
-- **Write learnings to:** `/data/vault/03-Memory/evoswim-*.md`, connected with
+- **Read first:** `/data/vault/03-Memory/evoswim.md`, then
+  `personal-website-redesign.md` (site stack, tokens, canvas-hero conventions,
+  deploy), `feedback-no-invented-copy.md`, `feedback-reference-only-repos.md`.
+  Ripgrep `03-Memory/` and `02-Knowledge/` for `evoswim`, `swim`, `CPG`, `evolution`.
+- **Write learnings to:** `/data/vault/03-Memory/evoswim*.md`, connected with
   [[wikilinks]]. Update an existing note rather than duplicating.
 - **Log decisions to:** `/data/vault/Decisions/DECISIONS.md` (dated, append-only).
 
 ## Project conventions
-- _Add evoswim-specific context, build/test commands, and constraints here._
+- Stack: Vite + vanilla TypeScript, canvas 2D, no runtime dependencies. Keep
+  `src/sim`, `src/evolve`, `src/render` free of DOM code so they port into the
+  site's React tree unchanged.
+- Determinism: seeded RNG (mulberry32 is fine), fixed timestep, time injected
+  into the frame function; `?t=N` freezes one frame, `?seed=N` picks the seed.
+- Screenshots: `/data/venvs/webapp-testing/bin/python` + Playwright (the
+  `webapp-testing` and `ascii-animation` skills have the harness). Check both
+  light and dark themes.
+- Don't add the page to the personal-website repo until step 3 works here and
+  Harrison asks for it.
+- Commit thematically; there is no `origin` yet (ask before creating a GitHub repo).
