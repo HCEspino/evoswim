@@ -29,27 +29,34 @@
       }
       html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); }
       body { font: 13px/1.4 var(--mono); display: flex; flex-direction: column; min-height: 100vh; }
-      canvas { display: block; width: 100%; flex: 1; cursor: crosshair; touch-action: manipulation; }
-      .bar { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 16px; border-top: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); }
-      .bar .stat { color: var(--ink-2); white-space: nowrap; }
-      .bar .stat b { color: var(--ink); font-weight: 500; }
+      canvas#c { display: block; width: 100%; flex: 1; min-height: 0; cursor: crosshair; touch-action: manipulation; }
+      .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px; border-top: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); }
+      .stat { color: var(--ink-2); white-space: nowrap; }
+      .stat b { color: var(--ink); font-weight: 500; }
       button { font: inherit; color: var(--ink); background: transparent; border: 1px solid color-mix(in srgb, var(--ink) 35%, transparent); border-radius: 3px; padding: 3px 9px; cursor: pointer; }
       button:hover { border-color: var(--ink); }
       button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
       .spacer { flex: 1; }
+      /* the bestiary: limb count across, limb reach down */
+      .grid { display: grid; grid-template-columns: repeat(9, 14px); grid-auto-rows: 14px; gap: 2px; }
+      .grid button { padding: 0; border-radius: 2px; border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); background: color-mix(in srgb, var(--ink) calc(var(--f, 0) * 1%), transparent); }
+      .grid button:disabled { cursor: default; border-style: dotted; }
+      .grid button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 0; }
+      .legend { color: var(--ink-2); font-size: 11px; line-height: 1.2; }
     </style>
   </head>
   <body>
     <canvas id="c" aria-label="evolved swimmer"></canvas>
     <div class="bar">
-      <button id="evolve">evolve from scratch</button>
-      <button id="champion">champion</button>
-      <button id="mode" aria-pressed="true">cloud</button>
-      <span class="stat">gen <b id="gen">–</b></span>
-      <span class="stat">best <b id="best">–</b></span>
+      <button id="search" aria-pressed="true">searching</button>
+      <button id="mode" aria-pressed="true">dither</button>
+      <span class="stat" id="who">–</span>
+      <span class="stat">archive <b id="arch">–</b></span>
       <span class="stat">goals <b id="goals">0</b></span>
-      <span class="stat" id="hint">click to move the goal</span>
+      <span class="stat">click to move the goal</span>
       <span class="spacer"></span>
+      <div class="legend">limbs →<br />reach ↓</div>
+      <div class="grid" id="grid" role="listbox" aria-label="bestiary: best swimmer per body plan"></div>
       <button id="theme">theme</button>
     </div>
     <script type="module" src="/src/main.ts"></script>

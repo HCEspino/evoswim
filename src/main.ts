@@ -1,44 +1,73 @@
 /**
  * Local demo page. All DOM code lives here; sim/evolve/render are pure.
- *   ?seed=N     scene + evolution seed (default 7)
- *   ?t=N        freeze at N seconds, no loop (screenshots)
- *   ?evolve=G   run G generations synchronously before the first frame
- *   ?mode=lines|cloud
+ *   ?seed=N       scene + search seed (default 7)
+ *   ?t=N          freeze at N seconds, no loop (screenshots)
+ *   ?creature=I   start on archive cell I (default: the best cell)
+ *   ?rand=N       start on a seeded random genome instead (body plan included)
+ *   ?mode=dither|cloud|lines
  *   ?theme=light|dark
- *   ?speed=S    sim seconds per wall second (default 0.45)
+ *   ?speed=S      sim seconds per wall second (default 0.45)
+ *   ?search=0     do not run the archive search worker
  */
-import champion from './evolve/champion.json'
-import { Evolution } from './evolve/es'
+import archiveJson from './evolve/archive.json'
+import type { ArchiveJson, Cell } from './evolve/map'
+import { COLS, ROWS, REACH_BIN } from './evolve/map'
 import { Scene } from './sim/scene'
 import { DT } from './sim/world'
+import { mulberry32 } from './sim/rng'
+import { GENOME_LENGTH } from './sim/genome'
 import { Camera } from './render/camera'
 import { drawLines, drawGoal } from './render/lines'
 import { drawCloud } from './render/cloud'
-import { drawFitnessPlot } from './render/plot'
+import { DitherRenderer } from './render/dither'
 import { DARK, LIGHT, type Palette } from './render/palette'
 
 const q = new URLSearchParams(location.search)
 const seed = Number(q.get('seed') ?? 7) || 7
 const freezeT = q.has('t') ? Number(q.get('t')) : null
-const preGens = Number(q.get('evolve') ?? 0) || 0
-let mode: 'lines' | 'cloud' = q.get('mode') === 'lines' ? 'lines' : 'cloud'
+type Mode = 'lines' | 'cloud' | 'dither'
+let mode: Mode = q.get('mode') === 'lines' ? 'lines' : q.get('mode') === 'cloud' ? 'cloud' : 'dither'
 const themeParam = q.get('theme')
 if (themeParam === 'light' || themeParam === 'dark') document.documentElement.dataset.theme = themeParam
-
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
-/** Simulation seconds per wall second: the body length and time unit are arbitrary, and the swim reads better unhurried. */
+/** Simulation seconds per wall second: the time unit is arbitrary, and the swim reads better unhurried. */
 const TIME_SCALE = Number(q.get('speed') ?? 0.45) || 0.45
+const wantSearch = q.get('search') !== '0' && freezeT === null && !reduced
 
+// ---- archive (main-thread copy for the UI) --------------------------------
+const archive: ArchiveJson = archiveJson as ArchiveJson
+const cells: (Cell | null)[] = archive.cells.slice()
+let evals = archive.evals
+let evalsPerSec = 0
+function bestIndex(): number {
+  let b = -1
+  cells.forEach((c, i) => {
+    if (c && (b < 0 || c.fitness > cells[b]!.fitness)) b = i
+  })
+  return b
+}
+let selected = q.has('creature') ? Number(q.get('creature')) : bestIndex()
+if (!cells[selected]) selected = bestIndex()
+
+function startGenome(): ArrayLike<number> {
+  if (q.has('rand')) {
+    const r = mulberry32(Number(q.get('rand')))
+    return Float64Array.from({ length: GENOME_LENGTH }, () => r())
+  }
+  return cells[selected]!.genome
+}
+
+// ---- canvas ----------------------------------------------------------------
 const canvas = document.getElementById('c') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
 const el = (id: string) => document.getElementById(id)!
-const genEl = el('gen'), bestEl = el('best'), goalsEl = el('goals'), modeBtn = el('mode') as HTMLButtonElement
-
+const modeBtn = el('mode') as HTMLButtonElement
+const searchBtn = el('search') as HTMLButtonElement
+const gridEl = el('grid')
 const cam = new Camera()
 let dpr = 1
-const scene = new Scene(champion.genome, seed)
-let es: Evolution | null = null
-let evolving = false
+const dither = new DitherRenderer(document.createElement('canvas'))
+const scene = new Scene(startGenome(), seed)
 
 function palette(): Palette {
   const dark =
@@ -62,44 +91,105 @@ function draw(): void {
   ctx.fillRect(0, 0, cam.width, cam.height)
   if (mode === 'lines') {
     drawLines(ctx, scene, cam, pal)
-  } else {
+  } else if (mode === 'cloud') {
     drawGoal(ctx, scene, cam, pal)
-    drawCloud(ctx, scene.history, scene.t, cam, pal, { points: 18000, dpr, wakeFrames: 300 })
+    drawCloud(ctx, scene, cam, pal, dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  } else {
+    dither.draw(ctx, scene, cam, pal, dpr)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    drawGoal(ctx, scene, cam, pal)
   }
-  if (es && es.history.length > 1) {
-    drawFitnessPlot(ctx, es.history, 16, 16, 160, 50, pal)
-  }
+}
+
+// ---- bestiary grid ---------------------------------------------------------
+const cellButtons: HTMLButtonElement[] = []
+for (let i = 0; i < COLS * ROWS; i++) {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.setAttribute('role', 'option')
+  b.addEventListener('click', () => select(i))
+  gridEl.appendChild(b)
+  cellButtons.push(b)
+}
+
+function maxFitness(): number {
+  let m = 1
+  for (const c of cells) if (c && c.fitness > m) m = c.fitness
+  return m
+}
+
+function paintGrid(): void {
+  const m = maxFitness()
+  cells.forEach((c, i) => {
+    const b = cellButtons[i]
+    const col = i % COLS
+    const row = Math.floor(i / COLS)
+    if (!c) {
+      b.disabled = true
+      b.style.setProperty('--f', '0')
+      b.title = `limbs ${col}, reach ${(row * REACH_BIN).toFixed(1)}–${((row + 1) * REACH_BIN).toFixed(1)}: empty`
+    } else {
+      b.disabled = false
+      b.style.setProperty('--f', String(Math.round(12 + 78 * Math.max(0, c.fitness) / m)))
+      b.title = `limbs ${c.limbCount}, reach ${c.limbReach.toFixed(2)} BL, fitness ${c.fitness.toFixed(2)}, ${c.freq.toFixed(2)} Hz`
+    }
+    b.setAttribute('aria-pressed', String(i === selected))
+    b.setAttribute('aria-label', b.title)
+  })
+}
+
+function select(i: number): void {
+  const c = cells[i]
+  if (!c) return
+  selected = i
+  scene.setGenome(c.genome)
+  paintGrid()
+  hud()
+  if (freezeT !== null || reduced) {
+    draw()
+  } else start()
 }
 
 function hud(): void {
-  goalsEl.textContent = String(scene.captures)
-  if (es) {
-    genEl.textContent = String(es.generation) + (evolving ? ` (${Math.round(es.progress() * 100)}%)` : '')
-    bestEl.textContent = es.best ? es.best.fitness.toFixed(2) : '–'
+  el('goals').textContent = String(scene.captures)
+  const c = cells[selected]
+  el('who').textContent = c
+    ? `limbs ${c.limbCount} · reach ${c.limbReach.toFixed(2)} · fit ${c.fitness.toFixed(1)} · ${c.freq.toFixed(1)} Hz`
+    : 'random body'
+  const filled = cells.filter(Boolean).length
+  const k = evals >= 1000 ? `${(evals / 1000).toFixed(evals >= 100000 ? 0 : 1)}k` : String(evals)
+  el('arch').textContent = `${filled}/${COLS * ROWS} · ${k} evals${evalsPerSec ? ` · ${Math.round(evalsPerSec)}/s` : ''}`
+}
+
+// ---- search worker ---------------------------------------------------------
+let worker: Worker | null = null
+let searching = false
+function setSearching(on: boolean): void {
+  searching = on
+  searchBtn.textContent = on ? 'searching' : 'search paused'
+  searchBtn.setAttribute('aria-pressed', String(on))
+  if (!worker) {
+    if (!on) return
+    worker = new Worker(new URL('./evolve/mapWorker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (e: MessageEvent) => {
+      const msg = e.data
+      if (msg.type === 'cells') {
+        evals = msg.evals
+        evalsPerSec = msg.evalsPerSec
+        for (const [i, c] of msg.cells as [number, Cell][]) cells[i] = c
+        paintGrid()
+        hud()
+      }
+    }
+    worker.postMessage({ type: 'start', seed, archive: { cols: COLS, rows: ROWS, evals, cells } })
   } else {
-    genEl.textContent = `champion (seed ${champion.seed}, ${champion.generations} gens)`
-    bestEl.textContent = champion.fitness.toFixed(2)
+    worker.postMessage({ type: on ? 'resume' : 'pause' })
   }
 }
+searchBtn.addEventListener('click', () => setSearching(!searching))
 
-function startEvolution(): void {
-  es = new Evolution({ seed })
-  evolving = true
-  // generation 0 flails: show the first random individual while it is scored
-  scene.setGenome(es.population[0].genome)
-}
-
-function tickEvolution(budgetMs: number): void {
-  if (!es || !evolving) return
-  const rec = es.advance(budgetMs)
-  if (rec) {
-    scene.setGenome(es.best!.genome)
-    if (es.generation >= 400) evolving = false
-  }
-}
-
-// ---- main loop -----------------------------------------------------------
+// ---- main loop -------------------------------------------------------------
 let last = performance.now()
 let acc = 0
 let visible = true
@@ -117,9 +207,7 @@ function frame(now: number): void {
     steps++
   }
   const [cx, cy] = scene.swimmer.centroid()
-  // frame the swimmer and the goal together, slowly
-  cam.follow(0.65 * cx + 0.35 * scene.gx, 0.65 * cy + 0.35 * scene.gy, 0.03)
-  tickEvolution(evolving ? 9 : 0)
+  cam.follow(cx, cy, 0.03)
   draw()
   hud()
   if (visible) rafId = requestAnimationFrame(frame)
@@ -132,7 +220,7 @@ function start(): void {
   }
 }
 
-// ---- wiring --------------------------------------------------------------
+// ---- wiring ----------------------------------------------------------------
 window.addEventListener('resize', () => {
   resize()
   draw()
@@ -142,36 +230,22 @@ resize()
 canvas.addEventListener('pointerdown', (e) => {
   const r = canvas.getBoundingClientRect()
   scene.setGoal(cam.toWorldX(e.clientX - r.left), cam.toWorldY(e.clientY - r.top))
-  if (reduced || freezeT !== null) {
-    // frozen page: a click still moves the goal and starts the swim
-    start()
-  }
+  if (reduced || freezeT !== null) start()
 })
 
-el('evolve').addEventListener('click', () => {
-  startEvolution()
-  start()
-})
-el('champion').addEventListener('click', () => {
-  evolving = false
-  es = null
-  scene.setGenome(champion.genome)
-  hud()
-})
 modeBtn.addEventListener('click', () => {
-  mode = mode === 'lines' ? 'cloud' : 'lines'
+  mode = mode === 'dither' ? 'cloud' : 'dither'
   modeBtn.textContent = mode
-  modeBtn.setAttribute('aria-pressed', String(mode === 'cloud'))
-  draw()
-})
-el('theme').addEventListener('click', () => {
-  const cur = palette().mode
-  document.documentElement.dataset.theme = cur === 'dark' ? 'light' : 'dark'
+  modeBtn.setAttribute('aria-pressed', String(mode === 'dither'))
   draw()
 })
 modeBtn.textContent = mode
-modeBtn.setAttribute('aria-pressed', String(mode === 'cloud'))
+modeBtn.setAttribute('aria-pressed', String(mode === 'dither'))
 
+el('theme').addEventListener('click', () => {
+  document.documentElement.dataset.theme = palette().mode === 'dark' ? 'light' : 'dark'
+  draw()
+})
 new MutationObserver(() => draw()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
 const io = new IntersectionObserver(([entry]) => {
@@ -180,20 +254,14 @@ const io = new IntersectionObserver(([entry]) => {
 })
 io.observe(canvas)
 
-// ---- boot ----------------------------------------------------------------
-if (preGens > 0) {
-  es = new Evolution({ seed })
-  for (let g = 0; g < preGens; g++) es.step()
-  scene.setGenome(es.best!.genome)
-  evolving = false
-}
-
+// ---- boot ------------------------------------------------------------------
+paintGrid()
+if (wantSearch) setSearching(true)
+else setSearching(false)
 if (freezeT !== null || reduced) {
-  // a settled frame: run the sim to the requested time, draw once, no loop
-  const target = freezeT ?? 12
-  scene.runTo(target)
+  scene.runTo(freezeT ?? 12)
   const [cx, cy] = scene.swimmer.centroid()
-  cam.follow(0.65 * cx + 0.35 * scene.gx, 0.65 * cy + 0.35 * scene.gy, 1)
+  cam.follow(cx, cy, 1)
   draw()
   hud()
 } else {
