@@ -1,7 +1,6 @@
 # evoswim: how it works
 
-Reference notes on the method, written for Harrison to rewrite in his own words.
-Numbers are the shipped values as of 2026-10-26.
+Reference notes on the method. Numbers are the shipped values as of 2026-10-26.
 
 ## 1. The question
 
@@ -105,8 +104,8 @@ MAP-Elites rather than a single optimum, because the goal is variety, not speed.
 - Proposals: pick a random elite, 30% chance of uniform crossover with another, perturb
   each gene with probability 0.3 by N(0, 0.1²) reflected into [0, 1], 15% chance of
   re-rolling an entire limb slot, 5% fully random genomes.
-- 500,000 evaluations on 24 threads, about 6 minutes. The in-page search was removed
-  after it caused visible restarts; the shipped archive is fixed.
+- 500,000 evaluations on 24 threads, about 6 minutes. The shipped archive is fixed; an
+  in-page search was tried and removed because swaps mid-swim read as restarts.
 - Lineage: when a new elite displaces one, the old one is kept in the cell's history,
   thinned to nine entries with the first and latest always retained. That history is the
   "progression" shown on the page, the first entry usually a near-random flailer.

@@ -1,5 +1,5 @@
 """Screenshot the demo page in both themes.
-  /data/venvs/webapp-testing/bin/python scripts/shoot.py [base_url] [query...]
+  python scripts/shoot.py [base_url] [query...]   (needs playwright with chromium)
 Writes shots/<query>-<theme>.png
 """
 import os, sys, urllib.parse

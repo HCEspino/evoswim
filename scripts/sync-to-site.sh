@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Copy the framework-free modules (sim, evolve, render, app) into the site's
-# React tree. The archive ships as a typed .ts module so the site's tsconfig
-# needs no JSON-module flag. Run after any change here; commit in both repos.
+# Copy the framework-free modules (sim, evolve, render, app) into a host
+# site's source tree. The archive ships as a typed .ts module so the host's
+# tsconfig needs no JSON-module flag. Run after any change here; commit both.
+#   scripts/sync-to-site.sh <path/to/site/src/evoswim>
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")/.." && pwd)/src"
-DST="${1:-/data/projects/personal-website/src/evoswim}"
+DST="${1:-${EVOSWIM_SITE_DIR:-}}"
+if [ -z "$DST" ]; then echo "usage: $0 <destination dir>  (or set EVOSWIM_SITE_DIR)" >&2; exit 2; fi
 mkdir -p "$DST"
 rsync -a --delete \
   --exclude 'archive.json' --exclude 'champion.json' \
@@ -16,7 +18,7 @@ rsync -a --delete \
   cat "$SRC/evolve/archive.json"
 } > "$DST/evolve/archive.ts"
 cat > "$DST/README.md" <<'MD'
-Generated from `/data/projects/evoswim` by `scripts/sync-to-site.sh`.
+Generated from https://github.com/HCEspino/evoswim by its `scripts/sync-to-site.sh`.
 Do not edit here: change the evoswim repo and re-run the sync.
 MD
 echo "synced to $DST"
