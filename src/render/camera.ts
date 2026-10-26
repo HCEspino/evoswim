@@ -11,8 +11,8 @@ export class Camera {
   resize(width: number, height: number): void {
     this.width = width
     this.height = height
-    // keep roughly 9 body lengths across, clamped for small screens
-    this.scale = Math.max(55, Math.min(140, width / 9))
+    // keep roughly 6.5 body lengths across, clamped for small screens
+    this.scale = Math.max(70, Math.min(200, width / 6.5))
   }
 
   /** Ease toward (x, y). `k` is the per-step blend; 1 snaps. */

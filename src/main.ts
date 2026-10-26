@@ -61,7 +61,7 @@ function draw(): void {
     drawLines(ctx, scene, cam, pal)
   } else {
     drawGoal(ctx, scene, cam, pal)
-    drawCloud(ctx, scene.swimmer, scene.t, cam, pal, { points: 9000, dpr })
+    drawCloud(ctx, scene.history, scene.t, cam, pal, { points: 18000, dpr, wakeFrames: 300 })
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
   if (es && es.history.length > 1) {

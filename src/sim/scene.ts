@@ -14,8 +14,42 @@ export interface Trail {
   count: number
 }
 
+/**
+ * Ring buffer of past body shapes, so a renderer can draw the wake: the
+ * body's own history is the silk that trails it.
+ */
+export class ShapeHistory {
+  readonly frames: number
+  readonly n: number
+  readonly px: Float32Array
+  readonly py: Float32Array
+  head = 0
+  count = 0
+  constructor(points: number, frames: number) {
+    this.n = points
+    this.frames = frames
+    this.px = new Float32Array(points * frames)
+    this.py = new Float32Array(points * frames)
+  }
+  push(px: ArrayLike<number>, py: ArrayLike<number>): void {
+    const o = this.head * this.n
+    for (let i = 0; i < this.n; i++) {
+      this.px[o + i] = px[i]
+      this.py[o + i] = py[i]
+    }
+    this.head = (this.head + 1) % this.frames
+    if (this.count < this.frames) this.count++
+  }
+  /** Frame offset for a shape `back` frames ago (0 = newest), clamped. */
+  offset(back: number): number {
+    const b = Math.min(back, this.count - 1)
+    return (((this.head - 1 - b) % this.frames) + this.frames) % this.frames * this.n
+  }
+}
+
 export class Scene {
   readonly swimmer: Swimmer
+  readonly history: ShapeHistory
   params: CpgParams
   gx = -2.5
   gy = 0.6
@@ -31,6 +65,8 @@ export class Scene {
     this.params = decode(genome)
     this.rng = mulberry32(seed ^ 0x5bd1e995)
     this.trail = { x: new Float32Array(trailLen), y: new Float32Array(trailLen), head: 0, count: 0 }
+    this.history = new ShapeHistory(this.swimmer.n + 1, 360)
+    this.history.push(this.swimmer.px, this.swimmer.py)
     // first goal: ahead-left of a swimmer that faces -x
     this.gx = -2.5
     this.gy = 0.6
@@ -59,6 +95,7 @@ export class Scene {
     this.sinceCapture += dt
     const [cx, cy] = this.swimmer.centroid()
     this.pushTrail(cx, cy)
+    this.history.push(this.swimmer.px, this.swimmer.py)
     if (Math.hypot(this.gx - cx, this.gy - cy) < CAPTURE_RADIUS) {
       this.captures++
       this.sinceCapture = 0
