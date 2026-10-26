@@ -27,9 +27,15 @@ export interface CpgParams {
   steerOffset: number
   /** amplitude asymmetry per rad of goal bearing (beat harder on one side) */
   steerAsym: number
+  /** spine joint stiffness: fluid torque / stiffness = passive bend, rad */
+  kSpine: number
+  /** limb joint stiffness */
+  kLimb: number
+  /** joint response frequency, Hz: how fast a joint follows its target */
+  response: number
 }
 
-export const GENOME_SIZE = 10
+export const GENOME_SIZE = 13
 
 export const GENE_NAMES = [
   'freq',
@@ -42,6 +48,9 @@ export const GENE_NAMES = [
   'steerGain',
   'steerOffset',
   'steerAsym',
+  'kSpine',
+  'kLimb',
+  'response',
 ] as const
 
 /** [min, max] per gene, in the order of GENE_NAMES. */
@@ -56,6 +65,9 @@ export const GENE_RANGES: ReadonlyArray<readonly [number, number]> = [
   [-2.0, 2.0], // steerGain
   [-0.3, 0.3], // steerOffset
   [-1.0, 1.0], // steerAsym
+  [-0.7, 0.7], // kSpine, log10: 0.2 .. 5
+  [-1.0, 0.4], // kLimb, log10: 0.1 .. 2.5
+  [1.5, 4.0], // response, Hz
 ]
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x)
@@ -76,11 +88,16 @@ export function decode(genome: ArrayLike<number>): CpgParams {
     steerGain: v(7),
     steerOffset: v(8),
     steerAsym: v(9),
+    kSpine: Math.pow(10, v(10)),
+    kLimb: Math.pow(10, v(11)),
+    response: v(12),
   }
 }
 
 /** Largest joint bend allowed, rad. Keeps the optimizer away from body self-overlap. */
 export const JOINT_LIMIT = 1.2
+/** Largest sum of joint wave amplitudes over the spine, rad: a body cannot coil into a spiral. */
+export const CURL_MAX = 6
 
 /**
  * Fill `out` (length = joints) with joint angles at CPG phase `phase` (rad),
@@ -95,15 +112,25 @@ export function jointAngles(
 ): void {
   const n = out.length
   const b = Math.max(-1.5, Math.min(1.5, bearing))
-  const bias = p.steerOffset + p.steerGain * b
+  // steering is a uniform curl; cap it so the whole body bends at most a
+  // semicircle, else steering and body spin feed each other
+  const maxBias = Math.PI / Math.max(1, n)
+  let bias = p.steerOffset + p.steerGain * b
+  if (bias > maxBias) bias = maxBias
+  else if (bias < -maxBias) bias = -maxBias
+  const ampCap = CURL_MAX / Math.max(1, n)
   for (let j = 0; j < n; j++) {
     const s = n > 1 ? j / (n - 1) : 0
     const env = Math.pow(s, p.envPow)
-    const amp = p.ampHead + (p.ampTail - p.ampHead) * env
+    let amp = p.ampHead + (p.ampTail - p.ampHead) * env
+    if (amp > ampCap) amp = ampCap
     const ph = phase - p.wave * s
     let w = Math.sin(ph) + p.harm2 * Math.sin(2 * ph + p.harm2Phase)
-    // asymmetric beat: scale one half-cycle more than the other
-    const asym = 1 + p.steerAsym * b * (w > 0 ? 1 : -1)
+    // asymmetric beat: scale one half-cycle more than the other, never inverting it
+    let k = p.steerAsym * b
+    if (k > 0.7) k = 0.7
+    else if (k < -0.7) k = -0.7
+    const asym = 1 + k * (w > 0 ? 1 : -1)
     w *= asym
     let a = amp * w + bias
     if (a > JOINT_LIMIT) a = JOINT_LIMIT

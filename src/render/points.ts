@@ -14,6 +14,11 @@ export interface SheetOptions {
   points: number
   /** wake length in history frames (upper bound) */
   wakeFrames: number
+  /**
+   * Render time, in frames behind the newest history frame (0..1). The page
+   * draws one step behind and interpolates, so a 0.45x playback does not judder.
+   */
+  lag?: number
 }
 
 const fa = new Float64Array(4)
@@ -50,7 +55,8 @@ export function forEachPoint(
   opts: SheetOptions,
   emit: (x: number, y: number) => void,
 ): void {
-  const wake = Math.max(1, Math.min(opts.wakeFrames, h.count - 1))
+  const wake = Math.max(1, Math.min(opts.wakeFrames, h.count - 2))
+  const lag = opts.lag ?? 0
   const counts = allocate(chains, segLen, opts.points)
   for (let ci = 0; ci < chains.length; ci++) {
     const c = chains[ci]
@@ -65,7 +71,7 @@ export function forEachPoint(
       const u = 0.5 + 0.5 * Math.sin(th)
       const ageMax = (fam ? 24 + 60 * s : 36 + 96 * s) * (wake / 300) * wakeScale
       const age = u * u * u
-      const back = age * ageMax
+      const back = age * ageMax + lag
       const f0 = Math.floor(back)
       const fu = back - f0
       sampleAt(h, h.offset(f0), c, s, fa)

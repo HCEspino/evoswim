@@ -38,7 +38,7 @@ export class DitherRenderer {
     this.scratch = scratch
   }
 
-  draw(ctx: CanvasRenderingContext2D, scene: Scene, cam: Camera, pal: Palette, dpr: number, points = 18000): void {
+  draw(ctx: CanvasRenderingContext2D, scene: Scene, cam: Camera, pal: Palette, dpr: number, lag = 0, points = 18000): void {
     const gw = Math.ceil(cam.width / this.cell)
     const gh = Math.ceil(cam.height / this.cell)
     if (gw !== this.gw || gh !== this.gh) {
@@ -55,7 +55,7 @@ export class DitherRenderer {
     const scale = cam.scale / this.cell
     const ox = (cam.width / 2 - cam.cx * cam.scale) / this.cell
     const oy = (cam.height / 2 - cam.cy * cam.scale) / this.cell
-    forEachPoint(scene.history, sw.chains, sw.segLen, sw.morph.plumage, scene.t, { points, wakeFrames: 300 }, (x, y) => {
+    forEachPoint(scene.history, sw.chains, sw.segLen, sw.morph.plumage, scene.t, { points, wakeFrames: 300, lag }, (x, y) => {
       const gx = Math.floor(x * scale + ox)
       const gy = Math.floor(y * scale + oy)
       if (gx >= 0 && gy >= 0 && gx < gw && gy < gh) grid[gy * gw + gx] += 1

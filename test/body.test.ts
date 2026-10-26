@@ -69,7 +69,7 @@ test('a uniform bend offset turns the body', () => {
     t += DT
     for (let j = 0; j < nj; j++) {
       const sPos = j / (nj - 1)
-      target[j] = (0.15 + 0.55 * sPos) * Math.sin(2 * Math.PI * 1.5 * t - 1.5 * Math.PI * sPos) + 0.12
+      target[j] = (0.15 + 0.55 * sPos) * Math.sin(2 * Math.PI * 1.5 * t - 1.5 * Math.PI * sPos) + 0.2
     }
     s.stepWithJoints(target, DT)
   }
@@ -104,7 +104,7 @@ function paddler(segments: number, lag: number): Morphology {
 }
 
 function swimPaddles(m: Morphology, seconds = 10, rho = 0.03): number {
-  const s = new Swimmer(m, { cPar: 0.1, cPerp: 1.0, rho })
+  const s = new Swimmer(m, { cPar: 0.1, cPerp: 1.0, rho, rhoA: rho * 2.5 })
   const nLimb = s.limbJoints.length
   const target = new Float64Array(nLimb)
   let t = 0

@@ -8,6 +8,7 @@
 import { gaussian, mulberry32, type Rng } from '../sim/rng'
 import { GENOME_LENGTH as GENOME_SIZE } from '../sim/genome'
 import { evaluate, type EpisodeSpec } from '../sim/world'
+import type { FluidParams } from '../sim/body'
 
 export interface Individual {
   genome: Float64Array
@@ -26,6 +27,7 @@ export interface EsOptions {
   /** initial step size in unit-genome space */
   sigma0?: number
   episodes?: EpisodeSpec[]
+  fluid?: FluidParams
 }
 
 export interface GenerationRecord {
@@ -40,6 +42,7 @@ export class Evolution {
   readonly mu: number
   readonly lambda: number
   readonly episodes: EpisodeSpec[] | undefined
+  readonly fluid: FluidParams | undefined
   population: Individual[] = []
   parents: Individual[] = []
   best: Individual | null = null
@@ -53,6 +56,7 @@ export class Evolution {
     this.mu = opts.mu ?? 8
     this.lambda = opts.lambda ?? 32
     this.episodes = opts.episodes
+    this.fluid = opts.fluid
     const n = GENOME_SIZE
     this.tau = 1 / Math.sqrt(2 * Math.sqrt(n))
     this.tauPrime = 1 / Math.sqrt(2 * n)
@@ -66,7 +70,7 @@ export class Evolution {
   }
 
   private score(ind: Individual): void {
-    const r = evaluate(ind.genome, this.episodes)
+    const r = evaluate(ind.genome, this.episodes, this.fluid)
     ind.fitness = r.fitness
     ind.closed = r.closed
     ind.energy = r.energy

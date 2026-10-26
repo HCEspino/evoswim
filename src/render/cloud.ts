@@ -10,6 +10,7 @@ export function drawCloud(
   cam: Camera,
   pal: Palette,
   dpr: number,
+  lag = 0,
   points = 18000,
 ): void {
   const sw = scene.swimmer
@@ -20,7 +21,7 @@ export function drawCloud(
   const scale = cam.scale * dpr
   const ox = (cam.width / 2 - cam.cx * cam.scale) * dpr
   const oy = (cam.height / 2 - cam.cy * cam.scale) * dpr
-  forEachPoint(scene.history, sw.chains, sw.segLen, sw.morph.plumage, scene.t, { points, wakeFrames: 300 }, (x, y) => {
+  forEachPoint(scene.history, sw.chains, sw.segLen, sw.morph.plumage, scene.t, { points, wakeFrames: 300, lag }, (x, y) => {
     ctx.fillRect(Math.round(x * scale + ox), Math.round(y * scale + oy), 1, 1)
   })
   ctx.restore()

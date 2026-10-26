@@ -84,19 +84,22 @@ function resize(): void {
   cam.resize(r.width, r.height)
 }
 
+/** fraction of a sim step still pending; rendering sits one step behind and blends */
+let acc = 0
 function draw(): void {
   const pal = palette()
+  const lag = freezeT !== null || reduced ? 0 : Math.max(0, Math.min(1, 1 - acc / DT))
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.fillStyle = pal.paper
   ctx.fillRect(0, 0, cam.width, cam.height)
   if (mode === 'lines') {
-    drawLines(ctx, scene, cam, pal)
+    drawLines(ctx, scene, cam, pal, lag)
   } else if (mode === 'cloud') {
     drawGoal(ctx, scene, cam, pal)
-    drawCloud(ctx, scene, cam, pal, dpr)
+    drawCloud(ctx, scene, cam, pal, dpr, lag)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   } else {
-    dither.draw(ctx, scene, cam, pal, dpr)
+    dither.draw(ctx, scene, cam, pal, dpr, lag)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     drawGoal(ctx, scene, cam, pal)
   }
@@ -191,7 +194,6 @@ searchBtn.addEventListener('click', () => setSearching(!searching))
 
 // ---- main loop -------------------------------------------------------------
 let last = performance.now()
-let acc = 0
 let visible = true
 let rafId = 0
 
