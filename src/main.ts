@@ -197,6 +197,10 @@ let last = performance.now()
 let visible = true
 let rafId = 0
 
+/** debug hook: interpolated head position per frame, for smoothness checks */
+const dbg = { headX: 0, headY: 0, frames: 0 }
+;(window as unknown as { __evoswim: typeof dbg }).__evoswim = dbg
+
 function frame(now: number): void {
   rafId = 0
   const dtWall = Math.min(0.1, (now - last) / 1000)
@@ -212,6 +216,14 @@ function frame(now: number): void {
   cam.follow(cx, cy, 0.03)
   draw()
   hud()
+  {
+    const h = scene.history
+    const a = Math.max(0, Math.min(1, 1 - acc / DT))
+    const o0 = h.offset(0), o1 = h.offset(1)
+    dbg.headX = cam.toScreenX(h.ax[o0] + (h.ax[o1] - h.ax[o0]) * a)
+    dbg.headY = cam.toScreenY(h.ay[o0] + (h.ay[o1] - h.ay[o0]) * a)
+    dbg.frames++
+  }
   if (visible) rafId = requestAnimationFrame(frame)
 }
 
