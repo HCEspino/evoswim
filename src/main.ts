@@ -4,7 +4,7 @@
  *   ?t=N          freeze at N seconds, no loop (screenshots)
  *   ?creature=I   start on archive cell I (default: the best cell)
  *   ?rand=N       start on a seeded random genome instead (body plan included)
- *   ?mode=dither|cloud|lines
+ *   ?mode=lines    debug polyline view (default is the pixel skin)
  *   ?theme=light|dark
  *   ?speed=S      sim seconds per wall second (default 0.45)
  *   ?search=0     do not run the archive search worker
@@ -18,15 +18,14 @@ import { mulberry32 } from './sim/rng'
 import { GENOME_LENGTH } from './sim/genome'
 import { Camera } from './render/camera'
 import { drawLines, drawGoal } from './render/lines'
-import { drawCloud } from './render/cloud'
-import { DitherRenderer } from './render/dither'
+import { PixelRenderer } from './render/pixel'
 import { DARK, LIGHT, type Palette } from './render/palette'
 
 const q = new URLSearchParams(location.search)
 const seed = Number(q.get('seed') ?? 7) || 7
 const freezeT = q.has('t') ? Number(q.get('t')) : null
-type Mode = 'lines' | 'cloud' | 'dither'
-let mode: Mode = q.get('mode') === 'lines' ? 'lines' : q.get('mode') === 'cloud' ? 'cloud' : 'dither'
+type Mode = 'lines' | 'pixel'
+const mode: Mode = q.get('mode') === 'lines' ? 'lines' : 'pixel'
 const themeParam = q.get('theme')
 if (themeParam === 'light' || themeParam === 'dark') document.documentElement.dataset.theme = themeParam
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -61,12 +60,11 @@ function startGenome(): ArrayLike<number> {
 const canvas = document.getElementById('c') as HTMLCanvasElement
 const ctx = canvas.getContext('2d')!
 const el = (id: string) => document.getElementById(id)!
-const modeBtn = el('mode') as HTMLButtonElement
 const searchBtn = el('search') as HTMLButtonElement
 const gridEl = el('grid')
 const cam = new Camera()
 let dpr = 1
-const dither = new DitherRenderer(document.createElement('canvas'))
+const pixel = new PixelRenderer(document.createElement('canvas'))
 const scene = new Scene(startGenome(), seed)
 
 function palette(): Palette {
@@ -94,12 +92,8 @@ function draw(): void {
   ctx.fillRect(0, 0, cam.width, cam.height)
   if (mode === 'lines') {
     drawLines(ctx, scene, cam, pal, lag)
-  } else if (mode === 'cloud') {
-    drawGoal(ctx, scene, cam, pal)
-    drawCloud(ctx, scene, cam, pal, dpr, lag)
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   } else {
-    dither.draw(ctx, scene, cam, pal, dpr, lag)
+    pixel.draw(ctx, scene, cam, pal, dpr, lag)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     drawGoal(ctx, scene, cam, pal)
   }
@@ -247,14 +241,6 @@ canvas.addEventListener('pointerdown', (e) => {
   if (reduced || freezeT !== null) start()
 })
 
-modeBtn.addEventListener('click', () => {
-  mode = mode === 'dither' ? 'cloud' : 'dither'
-  modeBtn.textContent = mode
-  modeBtn.setAttribute('aria-pressed', String(mode === 'dither'))
-  draw()
-})
-modeBtn.textContent = mode
-modeBtn.setAttribute('aria-pressed', String(mode === 'dither'))
 
 el('theme').addEventListener('click', () => {
   document.documentElement.dataset.theme = palette().mode === 'dark' ? 'light' : 'dark'

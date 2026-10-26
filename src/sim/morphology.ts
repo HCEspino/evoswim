@@ -12,7 +12,7 @@
 export const MAX_SLOTS = 4
 export const SLOT_GENES = 10
 export const SPINE_GENES = 1
-export const PLUMAGE_GENES = 6
+export const PLUMAGE_GENES = 12
 export const MORPH_GENES = SPINE_GENES + MAX_SLOTS * SLOT_GENES + PLUMAGE_GENES
 
 export interface LimbSpec {
@@ -51,6 +51,15 @@ export interface Plumage {
   veil: number
   /** shimmer rate scale */
   shimmer: number
+  /** two hues, degrees, and how saturated / how much colour vs ink */
+  hueA: number
+  hueB: number
+  sat: number
+  colour: number
+  /** surface pattern: 0 stripes along the body, 1 rings around it, 2 spots, 3 gradient */
+  pattern: number
+  patFreq: number
+  patContrast: number
 }
 
 export interface Morphology {
@@ -99,6 +108,13 @@ export function decodeMorphology(g: ArrayLike<number>, offset: number): Morpholo
     wake: lerp(0.5, 1.5, g[i + 3]),
     veil: lerp(0.5, 1.8, g[i + 4]),
     shimmer: lerp(0.5, 2, g[i + 5]),
+    hueA: lerp(0, 360, g[i + 6]),
+    hueB: (lerp(0, 360, g[i + 6]) + lerp(20, 200, g[i + 7])) % 360,
+    sat: lerp(0.25, 0.85, g[i + 8]),
+    colour: lerp(0.2, 1, g[i + 9]),
+    pattern: Math.min(3, Math.floor(g[i + 10] * 4)),
+    patFreq: lerp(2, 14, g[i + 11]),
+    patContrast: lerp(0.3, 1, g[i + 8] * 0.5 + g[i + 11] * 0.5),
   }
   return { spineSegments, limbs, plumage }
 }
@@ -108,7 +124,10 @@ export function spineOnly(spineSegments = 12): Morphology {
   return {
     spineSegments,
     limbs: [],
-    plumage: { spineWidth: 1, fanA: 7, fanB: 11, wake: 1, veil: 1, shimmer: 1 },
+    plumage: {
+      spineWidth: 1, fanA: 7, fanB: 11, wake: 1, veil: 1, shimmer: 1,
+      hueA: 20, hueB: 200, sat: 0.5, colour: 0.6, pattern: 0, patFreq: 6, patContrast: 0.6,
+    },
   }
 }
 

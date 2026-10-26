@@ -53,7 +53,8 @@ export function forEachPoint(
   plumage: Plumage,
   t: number,
   opts: SheetOptions,
-  emit: (x: number, y: number) => void,
+  /** x, y world; s along the chain; th the loop angle; age 0..1 back into the wake; nx, ny the chain normal; ci chain index */
+  emit: (x: number, y: number, s: number, th: number, age: number, nx: number, ny: number, ci: number) => void,
 ): void {
   const wake = Math.max(1, Math.min(opts.wakeFrames, h.count - 2))
   const lag = opts.lag ?? 0
@@ -88,7 +89,7 @@ export function forEachPoint(
       const ripple = 0.05 * age * Math.sin(2.5 * plumage.shimmer * t - 0.12 * back - 9 * s + fam * 1.3 + ci)
       const lateral = (body + veil) * v + ripple
       const along = 0.08 * age * Math.sin(1.7 * plumage.shimmer * t - 0.09 * back + 5 * s + ci)
-      emit(x + nx * lateral + tx * along, y + ny * lateral + ty * along)
+      emit(x + nx * lateral + tx * along, y + ny * lateral + ty * along, s, th, age, nx, ny, ci)
     }
   }
 }
