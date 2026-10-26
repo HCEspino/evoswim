@@ -1,0 +1,19 @@
+{
+  "name": "evoswim",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "tsx --test test/*.test.ts",
+    "evolve": "tsx scripts/evolve-cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9",
+    "vite": "^7.3.7"
+  }
+}
