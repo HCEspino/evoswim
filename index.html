@@ -14,50 +14,57 @@
         --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
       }
       @media (prefers-color-scheme: dark) {
-        :root:not([data-theme="light"]) {
-          --paper: #141516;
-          --ink: #e9e7e2;
-          --ink-2: #8d8b86;
-          --accent: #e2543f;
-        }
+        :root:not([data-theme="light"]) { --paper: #141516; --ink: #e9e7e2; --ink-2: #8d8b86; --accent: #e2543f; }
       }
-      :root[data-theme="dark"] {
-        --paper: #141516;
-        --ink: #e9e7e2;
-        --ink-2: #8d8b86;
-        --accent: #e2543f;
-      }
-      html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); }
-      body { font: 13px/1.4 var(--mono); display: flex; flex-direction: column; min-height: 100vh; }
-      canvas#c { display: block; width: 100%; flex: 1; min-height: 0; cursor: crosshair; touch-action: manipulation; }
-      .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px; border-top: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); }
+      :root[data-theme="dark"] { --paper: #141516; --ink: #e9e7e2; --ink-2: #8d8b86; --accent: #e2543f; }
+      html, body { margin: 0; background: var(--paper); color: var(--ink); }
+      body { font: 13px/1.4 var(--mono); min-height: 100vh; }
+      .bar { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px; background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); }
       .stat { color: var(--ink-2); white-space: nowrap; }
       .stat b { color: var(--ink); font-weight: 500; }
       button { font: inherit; color: var(--ink); background: transparent; border: 1px solid color-mix(in srgb, var(--ink) 35%, transparent); border-radius: 3px; padding: 3px 9px; cursor: pointer; }
       button:hover { border-color: var(--ink); }
       button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
       .spacer { flex: 1; }
-      /* the bestiary: limb count across, limb reach down */
-      .grid { display: grid; grid-template-columns: repeat(9, 14px); grid-auto-rows: 14px; gap: 2px; }
-      .grid button { padding: 0; border-radius: 2px; border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); background: color-mix(in srgb, var(--ink) calc(var(--f, 0) * 1%), transparent); }
-      .grid button:disabled { cursor: default; border-style: dotted; }
-      .grid button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 0; }
-      .legend { color: var(--ink-2); font-size: 11px; line-height: 1.2; }
+      main { padding: 16px; }
+      /* the wall: one tank per body plan */
+      .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+      .tank { display: flex; flex-direction: column; gap: 4px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); border-radius: 4px; padding: 6px; background: transparent; color: inherit; font: inherit; text-align: left; }
+      .tank:hover { border-color: color-mix(in srgb, var(--ink) 45%, transparent); }
+      .tank canvas { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: 2px; }
+      .tank .cap { color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tank .cap b { color: var(--ink); font-weight: 500; }
+      /* zoomed view */
+      .zoom { display: none; flex-direction: column; gap: 14px; }
+      .zoom.on { display: flex; }
+      .wall.off { display: none; }
+      .zoom .big canvas { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 72vh; cursor: crosshair; border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); border-radius: 4px; }
+      .zoom .meta { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+      .strip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+      .strip .tank { flex: 0 0 200px; cursor: default; }
+      .strip .tank.now { border-color: var(--accent); }
+      .legend { color: var(--ink-2); font-size: 11px; }
     </style>
   </head>
   <body>
-    <canvas id="c" aria-label="evolved swimmer"></canvas>
     <div class="bar">
+      <button id="back" hidden>← all tanks</button>
       <button id="search" aria-pressed="true">searching</button>
-      <span class="stat" id="who">–</span>
       <span class="stat">archive <b id="arch">–</b></span>
-      <span class="stat">goals <b id="goals">0</b></span>
-      <span class="stat">click to move the goal</span>
+      <span class="stat" id="who"></span>
       <span class="spacer"></span>
-      <div class="legend">limbs →<br />length ↓</div>
-      <div class="grid" id="grid" role="listbox" aria-label="bestiary: best swimmer per body plan"></div>
+      <span class="legend" id="hint">click a tank to zoom · click in a tank to call the swimmer</span>
       <button id="theme">theme</button>
     </div>
+    <main>
+      <div class="wall" id="wall"></div>
+      <section class="zoom" id="zoom">
+        <div class="big" id="big"></div>
+        <div class="meta" id="meta"></div>
+        <div class="legend">progression of this body plan: every elite that held the cell, first to now</div>
+        <div class="strip" id="strip"></div>
+      </section>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

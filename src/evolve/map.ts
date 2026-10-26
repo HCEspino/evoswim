@@ -17,6 +17,15 @@ export const ROWS = 8 // longest-limb bins
 export const REACH_MIN = 0.12
 export const REACH_BIN = 0.06 // 0.12 .. 0.60 BL in 8 bins
 
+export interface Ancestor {
+  genome: number[]
+  fitness: number
+  found: number
+}
+
+/** How many past elites a cell remembers (first and latest always kept). */
+export const PAST_MAX = 9
+
 export interface Cell {
   genome: number[]
   fitness: number
@@ -26,7 +35,22 @@ export interface Cell {
   freq: number
   /** evaluation counter when this elite was found */
   found: number
+  /** the elites this one displaced, oldest first: the species' progression */
+  past: Ancestor[]
 }
+
+/** Thin a lineage to PAST_MAX entries, always keeping the first and the last. */
+export function thinPast(past: Ancestor[]): Ancestor[] {
+  if (past.length <= PAST_MAX) return past
+  const out: Ancestor[] = [past[0]]
+  const inner = past.slice(1, -1)
+  const keep = PAST_MAX - 2
+  for (let i = 0; i < keep; i++) out.push(inner[Math.round(((i + 0.5) * inner.length) / keep - 0.5)])
+  out.push(past[past.length - 1])
+  return out
+}
+
+const round4 = (g: ArrayLike<number>) => Array.from(g, (v) => Math.round(v * 1e4) / 1e4)
 
 export interface ArchiveJson {
   cols: number
@@ -103,14 +127,16 @@ export class MapElites {
     const idx = cellIndex(d.limbCount, d.limbReach)
     const cur = this.cells[idx]
     if (!cur || r.fitness > cur.fitness) {
+      const past = cur ? thinPast([...(cur.past ?? []), { genome: cur.genome, fitness: cur.fitness, found: cur.found }]) : []
       this.cells[idx] = {
-        genome: Array.from(genome),
+        genome: round4(genome),
         fitness: r.fitness,
         closed: r.closed,
         limbCount: d.limbCount,
         limbReach: d.limbReach,
         freq: cpg.freq,
         found: this.evals,
+        past,
       }
       this.changed.add(idx)
       return idx
@@ -138,7 +164,7 @@ export class MapElites {
     this.evals = a.evals
     a.cells.forEach((c, i) => {
       if (c) {
-        this.cells[i] = c
+        this.cells[i] = { ...c, past: c.past ?? [] }
         this.changed.add(i)
       }
     })

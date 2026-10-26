@@ -1,21 +1,20 @@
 /**
- * Local demo page. All DOM code lives here; sim/evolve/render are pure.
+ * The fish tanks. All DOM code lives here; sim/evolve/render are pure.
+ *   ?creature=I   zoom on archive cell I
+ *   ?route=eight|oval|silk   the closed route every tank follows (default eight)
+ *   ?t=N          freeze every visible tank at N seconds, no loop (screenshots)
  *   ?seed=N       scene + search seed (default 7)
- *   ?t=N          freeze at N seconds, no loop (screenshots)
- *   ?creature=I   start on archive cell I (default: the best cell)
- *   ?rand=N       start on a seeded random genome instead (body plan included)
- *   ?mode=lines    debug polyline view (default is the pixel skin)
  *   ?theme=light|dark
  *   ?speed=S      sim seconds per wall second (default 0.45)
  *   ?search=0     do not run the archive search worker
+ *   ?mode=lines   debug polyline view
  */
 import archiveJson from './evolve/archive.json'
-import type { ArchiveJson, Cell } from './evolve/map'
-import { COLS, ROWS, REACH_BIN, REACH_MIN } from './evolve/map'
+import type { ArchiveJson, Cell, Ancestor } from './evolve/map'
 import { Scene } from './sim/scene'
+import { routeByName } from './sim/route'
 import { DT } from './sim/world'
 import { mulberry32 } from './sim/rng'
-import { GENOME_LENGTH } from './sim/genome'
 import { Camera } from './render/camera'
 import { drawLines, drawGoal } from './render/lines'
 import { PixelRenderer } from './render/pixel'
@@ -24,48 +23,27 @@ import { DARK, LIGHT, type Palette } from './render/palette'
 const q = new URLSearchParams(location.search)
 const seed = Number(q.get('seed') ?? 7) || 7
 const freezeT = q.has('t') ? Number(q.get('t')) : null
-type Mode = 'lines' | 'pixel'
-const mode: Mode = q.get('mode') === 'lines' ? 'lines' : 'pixel'
+const linesMode = q.get('mode') === 'lines'
+const route = routeByName(q.get('route'))
 const themeParam = q.get('theme')
 if (themeParam === 'light' || themeParam === 'dark') document.documentElement.dataset.theme = themeParam
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
-/** Simulation seconds per wall second: the time unit is arbitrary, and the swim reads better unhurried. */
+const frozen = freezeT !== null || reduced
 const TIME_SCALE = Number(q.get('speed') ?? 0.45) || 0.45
-const wantSearch = q.get('search') !== '0' && freezeT === null && !reduced
+const wantSearch = q.get('search') !== '0' && !frozen
+/** world width shown in a tank, body lengths */
+const TANK_WORLD_W = 6.6
 
-// ---- archive (main-thread copy for the UI) --------------------------------
-const archive: ArchiveJson = archiveJson as ArchiveJson
-const cells: (Cell | null)[] = archive.cells.slice()
+// ---- archive (main-thread copy) ---------------------------------------------
+const archive = archiveJson as ArchiveJson
+const cells: (Cell | null)[] = archive.cells.map((c) => (c ? { ...c, past: c.past ?? [] } : null))
 let evals = archive.evals
 let evalsPerSec = 0
-function bestIndex(): number {
-  let b = -1
-  cells.forEach((c, i) => {
-    if (c && (b < 0 || c.fitness > cells[b]!.fitness)) b = i
-  })
-  return b
-}
-let selected = q.has('creature') ? Number(q.get('creature')) : bestIndex()
-if (!cells[selected]) selected = bestIndex()
 
-function startGenome(): ArrayLike<number> {
-  if (q.has('rand')) {
-    const r = mulberry32(Number(q.get('rand')))
-    return Float64Array.from({ length: GENOME_LENGTH }, () => r())
-  }
-  return cells[selected]!.genome
-}
-
-// ---- canvas ----------------------------------------------------------------
-const canvas = document.getElementById('c') as HTMLCanvasElement
-const ctx = canvas.getContext('2d')!
 const el = (id: string) => document.getElementById(id)!
+const wallEl = el('wall'), zoomEl = el('zoom'), bigEl = el('big'), stripEl = el('strip'), metaEl = el('meta')
+const backBtn = el('back') as HTMLButtonElement
 const searchBtn = el('search') as HTMLButtonElement
-const gridEl = el('grid')
-const cam = new Camera()
-let dpr = 1
-const pixel = new PixelRenderer(document.createElement('canvas'))
-const scene = new Scene(startGenome(), seed)
 
 function palette(): Palette {
   const dark =
@@ -74,92 +52,199 @@ function palette(): Palette {
   return dark ? DARK : LIGHT
 }
 
-function resize(): void {
-  dpr = Math.min(2, window.devicePixelRatio || 1)
-  const r = canvas.getBoundingClientRect()
-  canvas.width = Math.round(r.width * dpr)
-  canvas.height = Math.round(r.height * dpr)
-  cam.resize(r.width, r.height)
+// ---- tanks -------------------------------------------------------------------
+interface Tank {
+  root: HTMLElement
+  canvas: HTMLCanvasElement
+  ctx: CanvasRenderingContext2D
+  cap: HTMLElement | null
+  scene: Scene
+  cam: Camera
+  pixel: PixelRenderer
+  dpr: number
+  points: number
+  visible: boolean
+  big: boolean
+}
+const tanks = new Set<Tank>()
+const io = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    const t = (e.target as HTMLElement & { __tank?: Tank }).__tank
+    if (t) t.visible = e.isIntersecting
+  }
+})
+
+function sizeTank(t: Tank): void {
+  t.dpr = Math.min(2, window.devicePixelRatio || 1)
+  const r = t.canvas.getBoundingClientRect()
+  if (r.width < 2) return
+  t.canvas.width = Math.round(r.width * t.dpr)
+  t.canvas.height = Math.round(r.height * t.dpr)
+  t.cam.frame(r.width, r.height, TANK_WORLD_W)
+  // points scale with area: the big tank gets the full budget
+  t.points = Math.round(Math.max(2500, Math.min(42000, (r.width * r.height) / (1100 * 620) * 42000 * 1.3)))
 }
 
-/** fraction of a sim step still pending; rendering sits one step behind and blends */
-let acc = 0
-function draw(): void {
+function makeTank(parent: HTMLElement, genome: ArrayLike<number>, tankSeed: number, big: boolean, caption: string | null, onClick?: (t: Tank, wx: number, wy: number) => void): Tank {
+  const root = document.createElement(big ? 'div' : 'div')
+  root.className = 'tank'
+  const canvas = document.createElement('canvas')
+  canvas.setAttribute('aria-label', caption ?? 'swimmer')
+  root.appendChild(canvas)
+  let cap: HTMLElement | null = null
+  if (caption !== null) {
+    cap = document.createElement('div')
+    cap.className = 'cap'
+    cap.innerHTML = caption
+    root.appendChild(cap)
+  }
+  parent.appendChild(root)
+  const rng = mulberry32(tankSeed)
+  const scene = new Scene(genome, { seed: tankSeed, route, u0: rng() * 2 * Math.PI })
+  const t: Tank = {
+    root, canvas, ctx: canvas.getContext('2d')!, cap, scene, cam: new Camera(), pixel: new PixelRenderer(document.createElement('canvas')),
+    dpr: 1, points: 3000, visible: false, big,
+  }
+  ;(root as HTMLElement & { __tank?: Tank }).__tank = t
+  io.observe(root)
+  sizeTank(t)
+  if (onClick) {
+    canvas.addEventListener('pointerdown', (e) => {
+      const r = canvas.getBoundingClientRect()
+      onClick(t, t.cam.toWorldX(e.clientX - r.left), t.cam.toWorldY(e.clientY - r.top))
+    })
+  }
+  tanks.add(t)
+  return t
+}
+
+function destroyTank(t: Tank): void {
+  io.unobserve(t.root)
+  tanks.delete(t)
+  t.root.remove()
+}
+
+function drawTank(t: Tank, lag: number): void {
   const pal = palette()
-  const lag = freezeT !== null || reduced ? 0 : Math.max(0, Math.min(1, 1 - acc / DT))
+  const { ctx, cam, dpr, scene } = t
+  const [cx, cy] = scene.swimmer.centroid()
+  cam.keepInView(cx, cy, 24, 0.02)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.fillStyle = pal.paper
   ctx.fillRect(0, 0, cam.width, cam.height)
-  if (mode === 'lines') {
+  if (linesMode) {
     drawLines(ctx, scene, cam, pal, lag)
   } else {
-    pixel.draw(ctx, scene, cam, pal, dpr, lag)
+    t.pixel.draw(ctx, scene, cam, pal, dpr, lag, t.points)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    drawGoal(ctx, scene, cam, pal)
+    if (scene.detour) drawGoal(ctx, scene, cam, pal)
   }
 }
 
-// ---- bestiary grid ---------------------------------------------------------
-const cellButtons: HTMLButtonElement[] = []
-for (let i = 0; i < COLS * ROWS; i++) {
-  const b = document.createElement('button')
-  b.type = 'button'
-  b.setAttribute('role', 'option')
-  b.addEventListener('click', () => select(i))
-  gridEl.appendChild(b)
-  cellButtons.push(b)
+// ---- captions ------------------------------------------------------------------
+const cellCaption = (c: Cell) =>
+  `<b>${c.limbCount} limb${c.limbCount === 1 ? '' : 's'}</b> · longest ${c.limbReach.toFixed(2)} · fit ${c.fitness.toFixed(1)}`
+const kEvals = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : String(n))
+
+// ---- the wall --------------------------------------------------------------------
+const wallTanks = new Map<number, Tank>()
+function buildWall(): void {
+  const order = cells
+    .map((c, i) => ({ c, i }))
+    .filter((x): x is { c: Cell; i: number } => !!x.c)
+    .sort((a, b) => a.c.limbCount - b.c.limbCount || a.c.limbReach - b.c.limbReach)
+  for (const { c, i } of order) {
+    const t = makeTank(wallEl, c.genome, seed * 1000 + i, false, cellCaption(c), (tk, wx, wy) => {
+      void tk; void wx; void wy
+      openZoom(i, true)
+    })
+    t.root.setAttribute('role', 'button')
+    t.root.title = `zoom: cell ${i}`
+    wallTanks.set(i, t)
+  }
 }
 
-function maxFitness(): number {
-  let m = 1
-  for (const c of cells) if (c && c.fitness > m) m = c.fitness
-  return m
+// ---- zoom ------------------------------------------------------------------------
+let zoomed: number | null = null
+let zoomTanks: Tank[] = []
+function closeZoom(push: boolean): void {
+  for (const t of zoomTanks) destroyTank(t)
+  zoomTanks = []
+  zoomed = null
+  zoomEl.classList.remove('on')
+  wallEl.classList.remove('off')
+  backBtn.hidden = true
+  el('who').textContent = ''
+  if (push) history.pushState({}, '', location.pathname + stripParam('creature'))
 }
-
-function paintGrid(): void {
-  const m = maxFitness()
-  cells.forEach((c, i) => {
-    const b = cellButtons[i]
-    const col = i % COLS
-    const row = Math.floor(i / COLS)
-    if (!c) {
-      b.disabled = true
-      b.style.setProperty('--f', '0')
-      b.title = `limbs ${col}, longest limb ${(REACH_MIN + row * REACH_BIN).toFixed(2)}–${(REACH_MIN + (row + 1) * REACH_BIN).toFixed(2)} BL: empty`
-    } else {
-      b.disabled = false
-      b.style.setProperty('--f', String(Math.round(12 + 78 * Math.max(0, c.fitness) / m)))
-      b.title = `limbs ${c.limbCount}, longest limb ${c.limbReach.toFixed(2)} BL, fitness ${c.fitness.toFixed(2)}, ${c.freq.toFixed(2)} Hz`
-    }
-    b.setAttribute('aria-pressed', String(i === selected))
-    b.setAttribute('aria-label', b.title)
-  })
+function stripParam(name: string): string {
+  const p = new URLSearchParams(location.search)
+  p.delete(name)
+  const s = p.toString()
+  return s ? `?${s}` : ''
 }
-
-function select(i: number): void {
+function openZoom(i: number, push: boolean): void {
   const c = cells[i]
   if (!c) return
-  selected = i
-  scene.setGenome(c.genome)
-  paintGrid()
-  hud()
-  if (freezeT !== null || reduced) {
-    draw()
-  } else start()
+  for (const t of zoomTanks) destroyTank(t)
+  zoomTanks = []
+  zoomed = i
+  wallEl.classList.add('off')
+  zoomEl.classList.add('on')
+  backBtn.hidden = false
+  bigEl.innerHTML = ''
+  stripEl.innerHTML = ''
+  const big = makeTank(bigEl, c.genome, seed * 1000 + i, true, null, (tk, wx, wy) => tk.scene.setDetour(wx, wy))
+  big.root.style.cursor = 'crosshair'
+  zoomTanks.push(big)
+  metaEl.innerHTML = `<span class="stat">${cellCaption(c)} · ${c.freq.toFixed(2)} Hz · found at ${kEvals(c.found)} evals</span>`
+  const lineage: (Ancestor & { label: string })[] = [
+    ...c.past.map((a, k) => ({ ...a, label: k === 0 ? '1st' : `${k + 1}${k === 1 ? 'nd' : k === 2 ? 'rd' : 'th'}` })),
+    { genome: c.genome, fitness: c.fitness, found: c.found, label: 'now' },
+  ]
+  lineage.forEach((a, k) => {
+    const t = makeTank(stripEl, a.genome, seed * 1000 + i * 31 + k, false, `<b>${a.label}</b> · fit ${a.fitness.toFixed(1)} · ${kEvals(a.found)} evals`)
+    if (a.label === 'now') t.root.classList.add('now')
+    zoomTanks.push(t)
+  })
+  el('who').textContent = `cell ${i}`
+  if (push) {
+    const p = new URLSearchParams(location.search)
+    p.set('creature', String(i))
+    history.pushState({}, '', `?${p}`)
+  }
+  for (const t of zoomTanks) sizeTank(t)
+  if (frozen) freezeAll()
+  window.scrollTo({ top: 0 })
 }
+backBtn.addEventListener('click', () => closeZoom(true))
+window.addEventListener('popstate', () => {
+  const p = new URLSearchParams(location.search)
+  const c = p.get('creature')
+  if (c !== null && cells[Number(c)]) openZoom(Number(c), false)
+  else closeZoom(false)
+})
 
+// ---- archive updates from the worker -------------------------------------------
+function applyCell(i: number, c: Cell): void {
+  cells[i] = { ...c, past: c.past ?? [] }
+  const t = wallTanks.get(i)
+  if (t) {
+    t.scene.setGenome(c.genome)
+    if (t.cap) t.cap.innerHTML = cellCaption(c)
+  } else {
+    // a newly filled cell: add a tank at the end
+    const nt = makeTank(wallEl, c.genome, seed * 1000 + i, false, cellCaption(c), () => openZoom(i, true))
+    nt.root.setAttribute('role', 'button')
+    wallTanks.set(i, nt)
+  }
+  if (zoomed === i) openZoom(i, false)
+}
 function hud(): void {
-  el('goals').textContent = String(scene.captures)
-  const c = cells[selected]
-  el('who').textContent = c
-    ? `limbs ${c.limbCount} · longest ${c.limbReach.toFixed(2)} · fit ${c.fitness.toFixed(1)} · ${c.freq.toFixed(1)} Hz`
-    : 'random body'
   const filled = cells.filter(Boolean).length
-  const k = evals >= 1000 ? `${(evals / 1000).toFixed(evals >= 100000 ? 0 : 1)}k` : String(evals)
-  el('arch').textContent = `${filled}/${COLS * ROWS} · ${k} evals${evalsPerSec ? ` · ${Math.round(evalsPerSec)}/s` : ''}`
+  el('arch').textContent = `${filled} tanks · ${kEvals(evals)} evals${evalsPerSec ? ` · ${Math.round(evalsPerSec)}/s` : ''}`
 }
 
-// ---- search worker ---------------------------------------------------------
 let worker: Worker | null = null
 let searching = false
 function setSearching(on: boolean): void {
@@ -174,27 +259,21 @@ function setSearching(on: boolean): void {
       if (msg.type === 'cells') {
         evals = msg.evals
         evalsPerSec = msg.evalsPerSec
-        for (const [i, c] of msg.cells as [number, Cell][]) cells[i] = c
-        paintGrid()
+        for (const [i, c] of msg.cells as [number, Cell][]) applyCell(i, c)
         hud()
       }
     }
-    worker.postMessage({ type: 'start', seed, archive: { cols: COLS, rows: ROWS, evals, cells } })
+    worker.postMessage({ type: 'start', seed, archive: { cols: archive.cols, rows: archive.rows, evals, cells } })
   } else {
     worker.postMessage({ type: on ? 'resume' : 'pause' })
   }
 }
 searchBtn.addEventListener('click', () => setSearching(!searching))
 
-// ---- main loop -------------------------------------------------------------
+// ---- main loop ----------------------------------------------------------------
 let last = performance.now()
-let visible = true
+let acc = 0
 let rafId = 0
-
-/** debug hook: interpolated head position per frame, for smoothness checks */
-const dbg = { headX: 0, headY: 0, frames: 0 }
-;(window as unknown as { __evoswim: typeof dbg }).__evoswim = dbg
-
 function frame(now: number): void {
   rafId = 0
   const dtWall = Math.min(0.1, (now - last) / 1000)
@@ -202,68 +281,55 @@ function frame(now: number): void {
   acc += dtWall * TIME_SCALE
   let steps = 0
   while (acc >= DT && steps < 4) {
-    scene.step(DT)
     acc -= DT
     steps++
   }
-  const [cx, cy] = scene.swimmer.centroid()
-  cam.follow(cx, cy, 0.03)
-  draw()
-  hud()
-  {
-    const h = scene.history
-    const a = Math.max(0, Math.min(1, 1 - acc / DT))
-    const o0 = h.offset(0), o1 = h.offset(1)
-    dbg.headX = cam.toScreenX(h.ax[o0] + (h.ax[o1] - h.ax[o0]) * a)
-    dbg.headY = cam.toScreenY(h.ay[o0] + (h.ay[o1] - h.ay[o0]) * a)
-    dbg.frames++
+  const lag = Math.max(0, Math.min(1, 1 - acc / DT))
+  for (const t of tanks) {
+    if (!t.visible) continue
+    for (let k = 0; k < steps; k++) t.scene.step(DT)
+    drawTank(t, lag)
   }
-  if (visible) rafId = requestAnimationFrame(frame)
+  rafId = requestAnimationFrame(frame)
 }
-
 function start(): void {
   if (!rafId) {
     last = performance.now()
     rafId = requestAnimationFrame(frame)
   }
 }
+function freezeAll(): void {
+  const target = freezeT ?? 12
+  for (const t of tanks) {
+    t.scene.runTo(target)
+    drawTank(t, 0)
+  }
+}
 
-// ---- wiring ----------------------------------------------------------------
+// ---- wiring ---------------------------------------------------------------------
 window.addEventListener('resize', () => {
-  resize()
-  draw()
+  for (const t of tanks) sizeTank(t)
+  if (frozen) for (const t of tanks) drawTank(t, 0)
 })
-resize()
-
-canvas.addEventListener('pointerdown', (e) => {
-  const r = canvas.getBoundingClientRect()
-  scene.setGoal(cam.toWorldX(e.clientX - r.left), cam.toWorldY(e.clientY - r.top))
-  if (reduced || freezeT !== null) start()
-})
-
-
 el('theme').addEventListener('click', () => {
   document.documentElement.dataset.theme = palette().mode === 'dark' ? 'light' : 'dark'
-  draw()
+  if (frozen) for (const t of tanks) drawTank(t, 0)
 })
-new MutationObserver(() => draw()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+new MutationObserver(() => {
+  if (frozen) for (const t of tanks) drawTank(t, 0)
+}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 
-const io = new IntersectionObserver(([entry]) => {
-  visible = entry.isIntersecting
-  if (visible && freezeT === null && !reduced) start()
-})
-io.observe(canvas)
-
-// ---- boot ------------------------------------------------------------------
-paintGrid()
-if (wantSearch) setSearching(true)
-else setSearching(false)
-if (freezeT !== null || reduced) {
-  scene.runTo(freezeT ?? 12)
-  const [cx, cy] = scene.swimmer.centroid()
-  cam.follow(cx, cy, 1)
-  draw()
-  hud()
+// ---- boot --------------------------------------------------------------------------
+buildWall()
+hud()
+setSearching(wantSearch)
+if (q.has('creature') && cells[Number(q.get('creature'))]) openZoom(Number(q.get('creature')), false)
+if (frozen) {
+  // give the layout a frame so canvases have sizes, then settle every tank
+  requestAnimationFrame(() => {
+    for (const t of tanks) sizeTank(t)
+    freezeAll()
+  })
 } else {
   start()
 }

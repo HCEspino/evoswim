@@ -7,6 +7,7 @@ import type { CpgParams } from './cpg'
 import { decodeCreature } from './genome'
 import { mulberry32, type Rng } from './rng'
 import { CAPTURE_RADIUS, DT } from './world'
+import { nearest, speed, tangent, type Route } from './route'
 
 export interface Trail {
   x: Float32Array
@@ -54,6 +55,17 @@ export class ShapeHistory {
   }
 }
 
+export interface SceneOptions {
+  seed?: number
+  trailLen?: number
+  /** follow this closed route (pure pursuit) instead of chasing goals */
+  route?: Route
+  /** route parameter to start at */
+  u0?: number
+  /** carrot distance ahead on the route, body lengths */
+  lookahead?: number
+}
+
 export class Scene {
   swimmer: Swimmer
   history: ShapeHistory
@@ -66,18 +78,59 @@ export class Scene {
   readonly trail: Trail
   /** seconds since the last capture, for a pulse on the goal */
   sinceCapture = 10
+  readonly route: Route | null
+  /** progress along the route (parameter of the nearest point) */
+  u = 0
+  readonly lookahead: number
+  /** a temporary waypoint (a click) the swimmer visits before rejoining the route */
+  detour: { x: number; y: number; until: number } | null = null
 
-  constructor(genome: ArrayLike<number>, seed = 7, trailLen = 900) {
+  constructor(genome: ArrayLike<number>, opts: SceneOptions | number = {}) {
+    const o: SceneOptions = typeof opts === 'number' ? { seed: opts } : opts
+    const seed = o.seed ?? 7
+    const trailLen = o.trailLen ?? 900
     const { cpg, morph } = decodeCreature(genome)
     this.swimmer = new Swimmer(morph)
     this.params = cpg
     this.rng = mulberry32(seed ^ 0x5bd1e995)
     this.trail = { x: new Float32Array(trailLen), y: new Float32Array(trailLen), head: 0, count: 0 }
+    this.route = o.route ?? null
+    this.lookahead = o.lookahead ?? 0.9
+    if (this.route) {
+      this.u = o.u0 ?? 0
+      const [x, y] = this.route.point(this.u)
+      const [tx, ty] = tangent(this.route, this.u)
+      // the chain is built head-first toward +x in its frame, so facing along
+      // the tangent means phi = angle(tangent) + π; the head joint sits on the route
+      this.swimmer.reset(x, y, Math.atan2(ty, tx) + Math.PI)
+      this.updateCarrot()
+    } else {
+      // first goal: ahead-left of a swimmer that faces -x
+      this.gx = -2.5
+      this.gy = 0.6
+    }
     this.history = new ShapeHistory(this.swimmer.segs, 360)
     this.history.push(this.swimmer)
-    // first goal: ahead-left of a swimmer that faces -x
-    this.gx = -2.5
-    this.gy = 0.6
+  }
+
+  /** Visit (x, y) for up to `seconds`, then rejoin the route. */
+  setDetour(x: number, y: number, seconds = 6): void {
+    this.detour = { x, y, until: this.t + seconds }
+  }
+
+  private updateCarrot(): void {
+    const r = this.route!
+    const [cx, cy] = this.swimmer.centroid()
+    this.u = nearest(r, cx, cy, this.u)
+    if (this.detour && this.t < this.detour.until) {
+      this.gx = this.detour.x
+      this.gy = this.detour.y
+      if (Math.hypot(this.gx - cx, this.gy - cy) < CAPTURE_RADIUS) this.detour = null
+      return
+    }
+    this.detour = null
+    const du = this.lookahead / Math.max(0.2, speed(r, this.u))
+    ;[this.gx, this.gy] = r.point(this.u + du)
   }
 
   /**
@@ -97,6 +150,7 @@ export class Scene {
     }
     const sw = new Swimmer(morph)
     sw.reset(old.x, old.y, old.phi)
+    sw.phase = old.phase
     this.swimmer = sw
     this.history = new ShapeHistory(sw.segs, this.history.frames)
     this.history.push(sw)
@@ -122,6 +176,10 @@ export class Scene {
     const [cx, cy] = this.swimmer.centroid()
     this.pushTrail(cx, cy)
     this.history.push(this.swimmer)
+    if (this.route) {
+      this.updateCarrot()
+      return
+    }
     if (Math.hypot(this.gx - cx, this.gy - cy) < CAPTURE_RADIUS) {
       this.captures++
       this.sinceCapture = 0
