@@ -54,7 +54,6 @@ const aq = new Aquarium({
         ['fitness', c.fitness.toFixed(2)],
         ['beat', `${c.freq.toFixed(2)} Hz`],
         ['found', `after ${kEvals(c.found)} evaluations`],
-        ['state', s.pinned !== null ? 'kept, click again to let go' : 'under the glass'],
       ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
       el('formula').textContent = s.formula
     }

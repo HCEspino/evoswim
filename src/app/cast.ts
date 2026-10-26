@@ -19,7 +19,7 @@ function features(i: number, c: Cell): Feat {
     // weights: limbs and limb length dominate, then pattern, hue, spine, stiffness
     v: [
       (c.limbCount / 8) * 2.0,
-      (c.limbReach / 0.6) * 1.4,
+      (c.limbReach / 0.9) * 1.4,
       (pl.pattern / 3) * 0.6,
       Math.cos(hue) * 0.5,
       Math.sin(hue) * 0.5,

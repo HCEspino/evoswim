@@ -22,7 +22,7 @@ export interface LimbSpec {
   rootJoint: number
   /** +1 left, -1 right */
   side: 1 | -1
-  /** resting angle from the spine's tail-ward direction, rad */
+  /** resting angle from the spine's tail-ward direction, rad: small trails back, π/2 splays out, larger reaches forward */
   baseAngle: number
   /** total limb length, body lengths */
   length: number
@@ -79,8 +79,8 @@ export function decodeMorphology(g: ArrayLike<number>, offset: number): Morpholo
   for (let slot = 0; slot < MAX_SLOTS; slot++) {
     const enabled = g[i] > 0.5
     const attach = g[i + 1]
-    const baseAngle = lerp(0.35, 1.7, g[i + 2])
-    const length = lerp(0.12, 0.6, g[i + 3])
+    const baseAngle = lerp(0.3, 2.3, g[i + 2])
+    const length = lerp(0.12, 0.9, g[i + 3])
     const segments = Math.round(lerp(1, 4, g[i + 4]))
     const amp = lerp(0, 1.0, g[i + 5])
     const phase = lerp(0, 2 * Math.PI, g[i + 6])

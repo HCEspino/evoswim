@@ -15,7 +15,7 @@ import { evaluate, type EpisodeSpec } from '../sim/world'
 export const COLS = 9 // limb count 0..8
 export const ROWS = 8 // longest-limb bins
 export const REACH_MIN = 0.12
-export const REACH_BIN = 0.06 // 0.12 .. 0.60 BL in 8 bins
+export const REACH_BIN = 0.0975 // 0.12 .. 0.90 BL in 8 bins
 
 export interface Ancestor {
   genome: number[]
