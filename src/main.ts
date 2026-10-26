@@ -5,7 +5,6 @@
  *   ?cast=N       how many swimmers (default 10)
  *   ?theme=light|dark
  *   ?speed=S      sim seconds per wall second (default 0.45)
- *   ?search=0     do not run the archive search worker
  *   ?mode=lines   debug polyline view
  */
 import archiveJson from './evolve/archive.json'
@@ -37,13 +36,8 @@ const aq = new Aquarium({
   frozenAt,
   linesMode: q.get('mode') === 'lines',
   palette,
-  makeWorker: () => new Worker(new URL('./evolve/mapWorker.ts', import.meta.url), { type: 'module' }),
   onState: (s) => {
-    el('hint').textContent = s.fine ? 'Hover a swimmer. Click to keep it.' : 'Tap a swimmer to keep it.'
-    el('arch').textContent = `${kEvals(s.evals)} evaluations${s.evalsPerSec ? `, ${Math.round(s.evalsPerSec)} a second` : ''}`
-    const b = el('search')
-    b.textContent = s.searching ? 'pause search' : 'resume search'
-    b.setAttribute('aria-pressed', String(s.searching))
+    el('arch').textContent = `${kEvals(s.evals)} evaluations`
     const c = s.shown
     el('empty').hidden = !!c
     for (const id of ['lines', 'h-move', 'formula', 'h-lin']) el(id).hidden = !c
@@ -59,11 +53,9 @@ const aq = new Aquarium({
     }
   },
 })
-el('search').addEventListener('click', () => aq.setSearching(!aq.state().searching))
 el('theme').addEventListener('click', () => {
   document.documentElement.dataset.theme = palette().mode === 'dark' ? 'light' : 'dark'
   aq.redraw()
 })
 new MutationObserver(() => aq.redraw()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
 window.addEventListener('resize', () => aq.resize())
-aq.setSearching(q.get('search') !== '0' && frozenAt === null)

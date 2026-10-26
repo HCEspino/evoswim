@@ -328,14 +328,14 @@ export class Aquarium {
     this.minis = []
   }
 
+  /**
+   * Archive updates from the search reach the in-memory archive only. The ten
+   * on screen and their lineages are locked for the life of the page: a swap
+   * mid-swim reads as a freeze, and a rebuilt lineage strip flickers.
+   */
   private applyCell(i: number, c: Cell): void {
+    if (this.cast.includes(i)) return
     this.cells[i] = { ...c, past: c.past ?? [] }
-    const s = this.swims.find((x) => x.cell === i)
-    if (s) s.scene.setGenome(c.genome)
-    if (this.panelFor === i) {
-      this.panelFor = null
-      this.syncPanel()
-    }
   }
 
   private emit(): void {
