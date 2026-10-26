@@ -1,0 +1,120 @@
+/**
+ * Body plans. A creature is a spine (a chain) plus up to MAX_SLOTS limb
+ * slots; an enabled slot grows a limb rooted at a spine joint, optionally
+ * mirrored to the other side. Every segment, spine or limb, is a drag
+ * element in the same fluid, so limbs are paddles: they can only help by
+ * stroking non-reciprocally (the scallop theorem bites in this fluid).
+ *
+ * `decodeMorphology` reads unit floats from the genome after the controller
+ * genes; see genome.ts for the layout.
+ */
+
+export const MAX_SLOTS = 4
+export const SLOT_GENES = 10
+export const SPINE_GENES = 1
+export const PLUMAGE_GENES = 6
+export const MORPH_GENES = SPINE_GENES + MAX_SLOTS * SLOT_GENES + PLUMAGE_GENES
+
+export interface LimbSpec {
+  /** slot index 0..MAX_SLOTS-1 (mirror pairs share a slot) */
+  slot: number
+  /** spine joint index the limb grows from */
+  rootJoint: number
+  /** +1 left, -1 right */
+  side: 1 | -1
+  /** resting angle from the spine's tail-ward direction, rad */
+  baseAngle: number
+  /** total limb length, body lengths */
+  length: number
+  segments: number
+  /** root stroke amplitude, rad */
+  amp: number
+  /** stroke phase relative to the spine CPG, rad */
+  phase: number
+  /** phase lag per distal joint, rad: non-zero makes the stroke non-reciprocal */
+  lag: number
+  /** how much distal joints bend relative to the root */
+  whip: number
+  /** visual width at the root, body lengths */
+  width: number
+}
+
+export interface Plumage {
+  /** spine tube width scale */
+  spineWidth: number
+  /** fan periods for the two point families (the "7" and "11") */
+  fanA: number
+  fanB: number
+  /** wake length scale */
+  wake: number
+  /** veil spread scale */
+  veil: number
+  /** shimmer rate scale */
+  shimmer: number
+}
+
+export interface Morphology {
+  spineSegments: number
+  limbs: LimbSpec[]
+  plumage: Plumage
+}
+
+
+const lerp = (lo: number, hi: number, u: number) => lo + (hi - lo) * (u < 0 ? 0 : u > 1 ? 1 : u)
+
+/** Decode morphology genes starting at `offset` in `g`. */
+export function decodeMorphology(g: ArrayLike<number>, offset: number): Morphology {
+  let i = offset
+  const spineSegments = Math.round(lerp(8, 14, g[i++]))
+  const limbs: LimbSpec[] = []
+  for (let slot = 0; slot < MAX_SLOTS; slot++) {
+    const enabled = g[i] > 0.5
+    const attach = g[i + 1]
+    const baseAngle = lerp(0.35, 1.7, g[i + 2])
+    const length = lerp(0.12, 0.6, g[i + 3])
+    const segments = Math.round(lerp(1, 4, g[i + 4]))
+    const amp = lerp(0, 1.0, g[i + 5])
+    const phase = lerp(0, 2 * Math.PI, g[i + 6])
+    const lag = lerp(-1.6, 1.6, g[i + 7])
+    const mirror = g[i + 8] > 0.5
+    const whip = lerp(0.2, 1.2, g[i + 9])
+    i += SLOT_GENES
+    if (!enabled) continue
+    const rootJoint = Math.max(1, Math.min(spineSegments - 1, Math.round(lerp(1, spineSegments - 1, attach))))
+    const width = 0.02 + 0.05 * length
+    const base: Omit<LimbSpec, 'side' | 'phase'> = { slot, rootJoint, baseAngle, length, segments, amp, lag, whip, width }
+    // the slot's "mirror" gene doubles as the pair's phase: a mirrored pair
+    // strokes together when the gene is near 1, alternates when near 0.5
+    const side: 1 | -1 = g[i - SLOT_GENES + 1] > 0.5 ? 1 : -1
+    limbs.push({ ...base, side, phase })
+    if (mirror) {
+      const pairPhase = lerp(0, Math.PI, (g[i - 2] - 0.5) * 2)
+      limbs.push({ ...base, side: side === 1 ? -1 : 1, phase: phase + pairPhase })
+    }
+  }
+  const plumage: Plumage = {
+    spineWidth: lerp(0.6, 1.6, g[i]),
+    fanA: lerp(5, 9, g[i + 1]),
+    fanB: lerp(9, 15, g[i + 2]),
+    wake: lerp(0.5, 1.5, g[i + 3]),
+    veil: lerp(0.5, 1.8, g[i + 4]),
+    shimmer: lerp(0.5, 2, g[i + 5]),
+  }
+  return { spineSegments, limbs, plumage }
+}
+
+/** A plain eel: spine only, default plumage. Used by tests and as a fallback. */
+export function spineOnly(spineSegments = 12): Morphology {
+  return {
+    spineSegments,
+    limbs: [],
+    plumage: { spineWidth: 1, fanA: 7, fanB: 11, wake: 1, veil: 1, shimmer: 1 },
+  }
+}
+
+/** Descriptors used by the archive: limb count and total limb length / body length. */
+export function describe(m: Morphology): { limbCount: number; limbReach: number } {
+  let reach = 0
+  for (const l of m.limbs) reach += l.length
+  return { limbCount: m.limbs.length, limbReach: reach }
+}

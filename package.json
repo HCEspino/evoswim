@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
     "test": "tsx --test test/*.test.ts",
-    "evolve": "tsx scripts/evolve-cli.ts"
+    "evolve": "tsx scripts/evolve-cli.ts",
+    "map": "esbuild scripts/map-cli.ts scripts/map-worker.ts --bundle --platform=node --format=esm --outdir=.cache --log-level=warning && node .cache/map-cli.js"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

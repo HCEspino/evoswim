@@ -5,8 +5,9 @@
  * happens to pass through one goal does not pay. Fitness is total distance
  * closed, minus an energy term so the body does not thrash.
  */
-import { Swimmer, type SwimmerOptions } from './body'
-import { decode, type CpgParams } from './cpg'
+import { Swimmer } from './body'
+import type { CpgParams } from './cpg'
+import { decodeCreature } from './genome'
 
 export const DT = 1 / 60
 export const CAPTURE_RADIUS = 0.25
@@ -46,13 +47,10 @@ export interface EvalResult {
   energy: number
 }
 
-/** Evaluate a genome; reuses one swimmer for speed. Deterministic. */
-export function evaluate(
-  genome: ArrayLike<number>,
-  swimmer: Swimmer,
-  episodes: EpisodeSpec[] = DEFAULT_EPISODES,
-): EvalResult {
-  const p = decode(genome)
+/** Evaluate a genome: build its creature, run every episode. Deterministic. */
+export function evaluate(genome: ArrayLike<number>, episodes: EpisodeSpec[] = DEFAULT_EPISODES): EvalResult {
+  const { cpg: p, morph } = decodeCreature(genome)
+  const swimmer = new Swimmer(morph)
   let closed = 0
   let energy = 0
   for (const ep of episodes) {
@@ -97,6 +95,3 @@ export function runEpisode(p: CpgParams, swimmer: Swimmer, ep: EpisodeSpec): Epi
   return { closed, energy: swimmer.energy, captured }
 }
 
-export function makeSwimmer(opts?: SwimmerOptions): Swimmer {
-  return new Swimmer(opts)
-}

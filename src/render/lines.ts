@@ -1,11 +1,10 @@
-/** Debug render: body as a polyline, joints, goal, trail. */
+/** Debug render: every chain as a polyline, joints, goal, trail. */
 import type { Scene } from '../sim/scene'
 import type { Camera } from './camera'
 import type { Palette } from './palette'
 
 export function drawLines(ctx: CanvasRenderingContext2D, scene: Scene, cam: Camera, pal: Palette): void {
   const sw = scene.swimmer
-  // trail
   const tr = scene.trail
   if (tr.count > 1) {
     ctx.beginPath()
@@ -23,32 +22,30 @@ export function drawLines(ctx: CanvasRenderingContext2D, scene: Scene, cam: Came
     ctx.stroke()
     ctx.globalAlpha = 1
   }
-  // goal
   drawGoal(ctx, scene, cam, pal)
-  // body
-  ctx.beginPath()
-  for (let i = 0; i <= sw.n; i++) {
-    const x = cam.toScreenX(sw.px[i])
-    const y = cam.toScreenY(sw.py[i])
-    if (i === 0) ctx.moveTo(x, y)
-    else ctx.lineTo(x, y)
-  }
   ctx.strokeStyle = pal.ink
-  ctx.lineWidth = 2
+  ctx.fillStyle = pal.ink
   ctx.lineJoin = 'round'
-  ctx.stroke()
-  // head marker
+  ctx.lineCap = 'round'
+  for (const c of sw.chains) {
+    ctx.beginPath()
+    ctx.moveTo(cam.toScreenX(sw.wax[c.first]), cam.toScreenY(sw.way[c.first]))
+    for (let i = 0; i < c.count; i++) {
+      const s = c.first + i
+      ctx.lineTo(cam.toScreenX(sw.wbx[s]), cam.toScreenY(sw.wby[s]))
+    }
+    ctx.lineWidth = c.kind === 'spine' ? 2 : 1.4
+    ctx.stroke()
+    for (let i = 0; i < c.count; i++) {
+      const s = c.first + i
+      ctx.beginPath()
+      ctx.arc(cam.toScreenX(sw.wbx[s]), cam.toScreenY(sw.wby[s]), 1.6, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
   ctx.beginPath()
   ctx.arc(cam.toScreenX(sw.px[0]), cam.toScreenY(sw.py[0]), 4, 0, Math.PI * 2)
-  ctx.fillStyle = pal.ink
   ctx.fill()
-  // joints
-  ctx.fillStyle = pal.ink
-  for (let i = 1; i < sw.n; i++) {
-    ctx.beginPath()
-    ctx.arc(cam.toScreenX(sw.px[i]), cam.toScreenY(sw.py[i]), 1.8, 0, Math.PI * 2)
-    ctx.fill()
-  }
 }
 
 export function drawGoal(ctx: CanvasRenderingContext2D, scene: Scene, cam: Camera, pal: Palette): void {

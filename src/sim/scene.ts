@@ -3,7 +3,8 @@
  * new one is placed by a seeded RNG, so a run is reproducible. No DOM here.
  */
 import { Swimmer } from './body'
-import { decode, type CpgParams } from './cpg'
+import type { CpgParams } from './cpg'
+import { decodeCreature } from './genome'
 import { mulberry32, type Rng } from './rng'
 import { CAPTURE_RADIUS, DT } from './world'
 
@@ -20,22 +21,28 @@ export interface Trail {
  */
 export class ShapeHistory {
   readonly frames: number
+  /** segments per frame */
   readonly n: number
-  readonly px: Float32Array
-  readonly py: Float32Array
+  /** segment endpoints per frame: ax, ay, bx, by */
+  readonly ax: Float32Array
+  readonly ay: Float32Array
+  readonly bx: Float32Array
+  readonly by: Float32Array
   head = 0
   count = 0
-  constructor(points: number, frames: number) {
-    this.n = points
+  constructor(segments: number, frames: number) {
+    this.n = segments
     this.frames = frames
-    this.px = new Float32Array(points * frames)
-    this.py = new Float32Array(points * frames)
+    const mk = () => new Float32Array(segments * frames)
+    this.ax = mk(); this.ay = mk(); this.bx = mk(); this.by = mk()
   }
-  push(px: ArrayLike<number>, py: ArrayLike<number>): void {
+  push(sw: Swimmer): void {
     const o = this.head * this.n
     for (let i = 0; i < this.n; i++) {
-      this.px[o + i] = px[i]
-      this.py[o + i] = py[i]
+      this.ax[o + i] = sw.wax[i]
+      this.ay[o + i] = sw.way[i]
+      this.bx[o + i] = sw.wbx[i]
+      this.by[o + i] = sw.wby[i]
     }
     this.head = (this.head + 1) % this.frames
     if (this.count < this.frames) this.count++
@@ -48,8 +55,8 @@ export class ShapeHistory {
 }
 
 export class Scene {
-  readonly swimmer: Swimmer
-  readonly history: ShapeHistory
+  swimmer: Swimmer
+  history: ShapeHistory
   params: CpgParams
   gx = -2.5
   gy = 0.6
@@ -61,19 +68,38 @@ export class Scene {
   sinceCapture = 10
 
   constructor(genome: ArrayLike<number>, seed = 7, trailLen = 900) {
-    this.swimmer = new Swimmer()
-    this.params = decode(genome)
+    const { cpg, morph } = decodeCreature(genome)
+    this.swimmer = new Swimmer(morph)
+    this.params = cpg
     this.rng = mulberry32(seed ^ 0x5bd1e995)
     this.trail = { x: new Float32Array(trailLen), y: new Float32Array(trailLen), head: 0, count: 0 }
-    this.history = new ShapeHistory(this.swimmer.n + 1, 360)
-    this.history.push(this.swimmer.px, this.swimmer.py)
+    this.history = new ShapeHistory(this.swimmer.segs, 360)
+    this.history.push(this.swimmer)
     // first goal: ahead-left of a swimmer that faces -x
     this.gx = -2.5
     this.gy = 0.6
   }
 
+  /**
+   * Swap in another genome. A different body plan gets a new swimmer in the
+   * old one's pose (phase and momentum reset); the same plan keeps swimming.
+   */
   setGenome(genome: ArrayLike<number>): void {
-    this.params = decode(genome)
+    const { cpg, morph } = decodeCreature(genome)
+    this.params = cpg
+    const old = this.swimmer
+    const same =
+      morph.spineSegments === old.morph.spineSegments &&
+      JSON.stringify(morph.limbs) === JSON.stringify(old.morph.limbs)
+    if (same) {
+      old.morph.plumage = morph.plumage
+      return
+    }
+    const sw = new Swimmer(morph)
+    sw.reset(old.x, old.y, old.phi)
+    this.swimmer = sw
+    this.history = new ShapeHistory(sw.segs, this.history.frames)
+    this.history.push(sw)
   }
 
   setGoal(x: number, y: number): void {
@@ -95,7 +121,7 @@ export class Scene {
     this.sinceCapture += dt
     const [cx, cy] = this.swimmer.centroid()
     this.pushTrail(cx, cy)
-    this.history.push(this.swimmer.px, this.swimmer.py)
+    this.history.push(this.swimmer)
     if (Math.hypot(this.gx - cx, this.gy - cy) < CAPTURE_RADIUS) {
       this.captures++
       this.sinceCapture = 0

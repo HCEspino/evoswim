@@ -1,11 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Swimmer } from '../src/sim/body'
+import { spineOnly, type Morphology } from '../src/sim/morphology'
 import { DT } from '../src/sim/world'
 
 /** Hand-built travelling wave, no steering: the swimmer must go straight ahead. */
 test('symmetric travelling wave swims head-first', () => {
-  const s = new Swimmer({ segments: 12, length: 1 })
+  const s = new Swimmer(spineOnly(12))
   const nj = s.n - 1
   const target = new Float64Array(nj)
   const freq = 1.5
@@ -34,7 +35,7 @@ test('symmetric travelling wave swims head-first', () => {
 })
 
 test('wave travelling toward the head swims tail-first', () => {
-  const s = new Swimmer({ segments: 12, length: 1 })
+  const s = new Swimmer(spineOnly(12))
   const nj = s.n - 1
   const target = new Float64Array(nj)
   let t = 0
@@ -52,7 +53,7 @@ test('wave travelling toward the head swims tail-first', () => {
 })
 
 test('a frozen body does not move', () => {
-  const s = new Swimmer()
+  const s = new Swimmer(spineOnly(12))
   const target = new Float64Array(s.n - 1)
   for (let k = 0; k < 120; k++) s.stepWithJoints(target, DT)
   const [cx, cy] = s.centroid()
@@ -60,7 +61,7 @@ test('a frozen body does not move', () => {
 })
 
 test('a uniform bend offset turns the body', () => {
-  const s = new Swimmer({ segments: 12, length: 1 })
+  const s = new Swimmer(spineOnly(12))
   const nj = s.n - 1
   const target = new Float64Array(nj)
   let t = 0
@@ -78,7 +79,7 @@ test('a uniform bend offset turns the body', () => {
 
 test('deterministic across runs', () => {
   const run = () => {
-    const s = new Swimmer()
+    const s = new Swimmer(spineOnly(12))
     const target = new Float64Array(s.n - 1)
     let t = 0
     for (let k = 0; k < 300; k++) {
@@ -89,4 +90,50 @@ test('deterministic across runs', () => {
     return [s.x, s.y, s.phi]
   }
   assert.deepEqual(run(), run())
+})
+
+/** A body plan with one mirrored pair of paddles near the head. */
+function paddler(segments: number, lag: number): Morphology {
+  const m = spineOnly(10)
+  const base = { slot: 0, rootJoint: 3, baseAngle: 1.2, length: 0.4, segments, amp: 0.8, phase: 0, lag, whip: 1, width: 0.03 }
+  m.limbs = [
+    { ...base, side: 1 },
+    { ...base, side: -1 },
+  ]
+  return m
+}
+
+function swimPaddles(m: Morphology, seconds = 10, rho = 0.03): number {
+  const s = new Swimmer(m, { cPar: 0.1, cPerp: 1.0, rho })
+  const nLimb = s.limbJoints.length
+  const target = new Float64Array(nLimb)
+  let t = 0
+  for (let k = 0; k < seconds * 60; k++) {
+    t += DT
+    let o = 0
+    for (const l of m.limbs) {
+      for (let j = 0; j < l.segments; j++) {
+        const amp = j === 0 ? l.amp : l.amp * l.whip
+        target[o + j] = l.side * amp * Math.sin(2 * Math.PI * 1.2 * t + l.phase - j * l.lag)
+      }
+      o += l.segments
+    }
+    s.stepWithLimbJoints(target, DT)
+  }
+  const [cx, cy] = s.centroid()
+  return Math.hypot(cx - 0.5, cy)
+}
+
+test('rigid paddles stroking reciprocally cannot swim in the massless fluid (scallop theorem)', () => {
+  const d = swimPaddles(paddler(1, 0), 10, 0)
+  console.log(`  rigid reciprocal paddles, rho=0: ${d.toFixed(3)} BL in 10 s`)
+  assert.ok(d < 0.15, `expected (almost) no net motion, got ${d}`)
+})
+
+test('jointed paddles with a phase lag swim, and beat rigid ones with inertia', () => {
+  const lagged = swimPaddles(paddler(3, 1.0))
+  const rigid = swimPaddles(paddler(1, 0))
+  console.log(`  lagged 3-segment paddles: ${lagged.toFixed(3)} BL; rigid with inertia: ${rigid.toFixed(3)} BL in 10 s`)
+  assert.ok(lagged > 0.8, `expected net motion, got ${lagged}`)
+  assert.ok(lagged > 1.5 * rigid)
 })

@@ -6,9 +6,8 @@
  * No DOM here: the caller decides how many generations to run per frame.
  */
 import { gaussian, mulberry32, type Rng } from '../sim/rng'
-import { GENOME_SIZE } from '../sim/cpg'
-import { evaluate, makeSwimmer, type EpisodeSpec } from '../sim/world'
-import type { Swimmer } from '../sim/body'
+import { GENOME_LENGTH as GENOME_SIZE } from '../sim/genome'
+import { evaluate, type EpisodeSpec } from '../sim/world'
 
 export interface Individual {
   genome: Float64Array
@@ -41,7 +40,6 @@ export class Evolution {
   readonly mu: number
   readonly lambda: number
   readonly episodes: EpisodeSpec[] | undefined
-  readonly swimmer: Swimmer
   population: Individual[] = []
   parents: Individual[] = []
   best: Individual | null = null
@@ -55,7 +53,6 @@ export class Evolution {
     this.mu = opts.mu ?? 8
     this.lambda = opts.lambda ?? 32
     this.episodes = opts.episodes
-    this.swimmer = makeSwimmer()
     const n = GENOME_SIZE
     this.tau = 1 / Math.sqrt(2 * Math.sqrt(n))
     this.tauPrime = 1 / Math.sqrt(2 * n)
@@ -69,7 +66,7 @@ export class Evolution {
   }
 
   private score(ind: Individual): void {
-    const r = evaluate(ind.genome, this.swimmer, this.episodes)
+    const r = evaluate(ind.genome, this.episodes)
     ind.fitness = r.fitness
     ind.closed = r.closed
     ind.energy = r.energy
