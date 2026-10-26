@@ -20,8 +20,8 @@ export const WORLD_W = 13
 export const WORLD_H = WORLD_W * (9 / 16)
 export const LENS_DIAMETER = 240
 export const LENS_MAG = 3
-/** world width of the close-up, body lengths */
-export const CLOSEUP_WORLD_W = 4.6
+/** world width of the close-up, body lengths: the swimmer nearly fills it */
+export const CLOSEUP_WORLD_W = 2.6
 /** the glass never covers more than this fraction of the tank's width */
 const LENS_MAX_FRACTION = 0.34
 
@@ -92,6 +92,7 @@ export class Aquarium {
   private readonly closeupCam = new Camera()
   private readonly closeupPixel = new PixelRenderer(document.createElement('canvas'))
   private closeupDpr = 1
+  private closeupPoints = 36000
   private dpr = 1
   private lensD = LENS_DIAMETER
   private points = 60000
@@ -113,8 +114,11 @@ export class Aquarium {
   private readonly io: IntersectionObserver
   private readonly frozen: boolean
   private destroyed = false
+  /** ms spent per section in the last frame; readable at window.__evoswim.prof */
+  readonly prof = { step: 0, tank: 0, lens: 0, closeup: 0, minis: 0, frame: 0 }
 
   constructor(opts: AquariumOptions) {
+    ;(globalThis as unknown as { __evoswim?: Aquarium }).__evoswim = this
     this.o = { castSize: 10, seed: 7, timeScale: 0.45, linesMode: false, ancestorCaption: defaultAncestorCaption, ...opts }
     this.cells = opts.archive.cells.map((c) => (c ? { ...c, past: c.past ?? [] } : null))
     this.evals = opts.archive.evals
@@ -219,7 +223,7 @@ export class Aquarium {
     this.o.canvas.width = Math.round(r.width * this.dpr)
     this.o.canvas.height = Math.round(r.height * this.dpr)
     this.cam.frame(r.width, r.height, WORLD_W)
-    this.points = Math.round(Math.max(12000, Math.min(60000, ((r.width * r.height) / (1100 * 620)) * 60000)))
+    this.points = Math.round(Math.max(12000, Math.min(42000, ((r.width * r.height) / (1100 * 620)) * 42000)))
     this.lensD = Math.round(Math.min(LENS_DIAMETER, r.width * LENS_MAX_FRACTION))
     this.lensCanvas.width = this.lensD * this.dpr
     this.lensCanvas.height = this.lensD * this.dpr
@@ -238,6 +242,9 @@ export class Aquarium {
     cv.width = Math.round(r.width * this.closeupDpr)
     cv.height = Math.round(r.height * this.closeupDpr)
     this.closeupCam.frame(r.width, r.height, CLOSEUP_WORLD_W)
+    // chunkier cells at this zoom keep the pixel look; the budget scales with the strip
+    this.closeupPixel.cell = 3
+    this.closeupPoints = Math.round(Math.max(10000, Math.min(30000, ((r.width * r.height) / (1120 * 480)) * 24000)))
   }
 
   /** Call after the host shows the close-up canvas, so it gets measured. */
@@ -389,12 +396,14 @@ export class Aquarium {
     ctx.fillRect(0, 0, cam.width, cam.height)
     const per = Math.round(this.points / Math.max(1, this.swims.length))
     const layers: SceneLayer[] = this.swims.map((s) => ({ scene: s.scene, points: per }))
+    const tA = performance.now()
     if (this.o.linesMode) {
       for (const s of this.swims) drawLines(ctx, s.scene, cam, pal, lag)
     } else {
       this.pixel.drawLayers(ctx, layers, cam, pal, dpr, lag)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     }
+    this.prof.tank = performance.now() - tA
     const shown = this.pinned ?? this.hovered
     if (shown !== null) {
       const s = this.swims.find((x) => x.cell === shown)
@@ -409,9 +418,15 @@ export class Aquarium {
         ctx.setLineDash([])
       }
     }
+    const tL = performance.now()
     if (this.pointer && this.fine && !this.o.linesMode) this.drawLens(lag, pal, layers)
+    this.prof.lens = performance.now() - tL
+    const tC = performance.now()
     this.drawCloseup(pal, lag)
+    this.prof.closeup = performance.now() - tC
+    const tM = performance.now()
     this.drawMinis(pal, lag)
+    this.prof.minis = performance.now() - tM
   }
 
   /** The close-up: a camera that stays on the shown swimmer, from the same simulation. */
@@ -430,7 +445,7 @@ export class Aquarium {
     ctx.fillStyle = pal.paper
     ctx.fillRect(0, 0, cam.width, cam.height)
     if (this.o.linesMode) drawLines(ctx, s.scene, cam, pal, lag)
-    else this.closeupPixel.draw(ctx, s.scene, cam, pal, dpr, lag, 16000)
+    else this.closeupPixel.draw(ctx, s.scene, cam, pal, dpr, lag, this.closeupPoints, 5)
   }
 
   private drawMinis(pal: Palette, lag: number): void {
@@ -441,7 +456,7 @@ export class Aquarium {
         m.ctx.setTransform(m.dpr, 0, 0, m.dpr, 0, 0)
         m.ctx.fillStyle = pal.paper
         m.ctx.fillRect(0, 0, m.cam.width, m.cam.height)
-        m.pixel.draw(m.ctx, m.scene, m.cam, pal, m.dpr, lag, 9000)
+        m.pixel.draw(m.ctx, m.scene, m.cam, pal, m.dpr, lag, 3500)
       }
     }
   }
@@ -501,11 +516,14 @@ export class Aquarium {
       this.acc -= DT
       steps++
     }
+    const t0 = performance.now()
     for (let k = 0; k < steps; k++) {
       for (const s of this.swims) s.scene.step(DT)
       for (const m of this.minis) m.scene.step(DT)
     }
+    this.prof.step = performance.now() - t0
     this.drawAll(Math.max(0, Math.min(1, 1 - this.acc / DT)))
+    this.prof.frame = performance.now() - t0
     if (this.tankVisible || this.lineageVisible) this.rafId = requestAnimationFrame(this.frame)
   }
 

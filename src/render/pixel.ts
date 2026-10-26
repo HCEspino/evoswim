@@ -86,6 +86,10 @@ export class PixelRenderer {
   private owner = new Uint8Array(0)
   private ownerCount = new Float32Array(0)
   private layerCount = new Float32Array(0)
+  /** cells written this frame, so clearing and dithering touch only those */
+  private touched = new Int32Array(0)
+  private nTouched = 0
+  private paperFilled = false
   private gw = 0
   private gh = 0
   private img: ImageData | null = null
@@ -128,8 +132,8 @@ export class PixelRenderer {
     return cp
   }
 
-  draw(ctx: CanvasRenderingContext2D, scene: Scene, cam: Camera, pal: Palette, dpr: number, lag = 0, points = 42000): void {
-    this.drawLayers(ctx, [{ scene, points }], cam, pal, dpr, lag)
+  draw(ctx: CanvasRenderingContext2D, scene: Scene, cam: Camera, pal: Palette, dpr: number, lag = 0, points = 42000, density = 1): void {
+    this.drawLayers(ctx, [{ scene, points }], cam, pal, dpr, lag, density)
   }
 
   /** Several swimmers in one tank; each cell is dithered with the palette of the swimmer that dominates it. */
@@ -147,9 +151,12 @@ export class PixelRenderer {
       this.owner = new Uint8Array(n)
       this.ownerCount = new Float32Array(n)
       this.layerCount = new Float32Array(n)
+      this.touched = new Int32Array(n)
+      this.nTouched = 0
       this.scratch.width = gw
       this.scratch.height = gh
       this.img = null
+      this.paperFilled = false
     }
     const themeKey = `${pal.mode}|${pal.ink}|${pal.paper}`
     if (themeKey !== this.themeKey) {
@@ -157,11 +164,29 @@ export class PixelRenderer {
       this.ink = hexToRgb(pal.ink)
       this.paper = hexToRgb(pal.paper)
       this.palettes.clear()
+      this.paperFilled = false
     }
     const count = this.count, sumR = this.sumR, sumG = this.sumG, sumB = this.sumB
     const owner = this.owner, ownerCount = this.ownerCount, layerCount = this.layerCount
-    count.fill(0); sumR.fill(0); sumG.fill(0); sumB.fill(0); ownerCount.fill(0); owner.fill(0)
+    const touched = this.touched
+    const sctx = this.scratch.getContext('2d')!
+    if (!this.img) this.img = sctx.createImageData(gw, gh)
+    const data = this.img.data
     const ink = this.ink, paper = this.paper
+    // reset only what last frame wrote: the accumulators and the image cells
+    if (!this.paperFilled) {
+      for (let o = 0; o < data.length; o += 4) {
+        data[o] = paper[0]; data[o + 1] = paper[1]; data[o + 2] = paper[2]; data[o + 3] = 255
+      }
+      this.paperFilled = true
+    }
+    for (let j = 0; j < this.nTouched; j++) {
+      const i = touched[j]
+      count[i] = 0; sumR[i] = 0; sumG[i] = 0; sumB[i] = 0; ownerCount[i] = 0; owner[i] = 0
+      const o = i * 4
+      data[o] = paper[0]; data[o + 1] = paper[1]; data[o + 2] = paper[2]
+    }
+    let nTouched = 0
     const scale = cam.scale / this.cell
     const ox = (cam.width / 2 - cam.cx * cam.scale) / this.cell
     const oy = (cam.height / 2 - cam.cy * cam.scale) / this.cell
@@ -175,33 +200,35 @@ export class PixelRenderer {
       const colA = cp.colA, colB = cp.colB
       const t = scene.t
       const pattern = pl.pattern, pf = pl.patFreq, pc = pl.patContrast, colourAmt = pl.colour
-      if (layers.length > 1) layerCount.fill(0)
-      forEachPoint(scene.history, sw.chains, sw.segLen, pl, t, { points, wakeFrames: 300, lag }, (x, y, s, th, age, nx, ny, ci) => {
+      if (layers.length > 1) for (let j = 0; j < nTouched; j++) layerCount[touched[j]] = 0
+      forEachPoint(scene.history, sw.chains, sw.segLen, pl, t, { points, wakeFrames: 300, lag }, (x, y, s, cth, sth, _age, fadeA, nx, ny, ci) => {
         const gx = Math.floor(x * scale + ox)
         const gy = Math.floor(y * scale + oy)
         if (gx < 0 || gy < 0 || gx >= gw || gy >= gh) return
-      // texture in surface coordinates
-      let tex: number
-      if (pattern === 0) tex = 0.5 + 0.5 * Math.sin(2 * Math.PI * pf * s + ci * 1.7)
-      else if (pattern === 1) tex = 0.5 + 0.5 * Math.sin(th * 0.5 * pf * 0.25)
-      else if (pattern === 2) tex = hash2(Math.floor(s * pf * 1.5) + ci * 97, Math.floor(((th / (2 * Math.PI)) % 1 + 1) % 1 * 6)) > 0.62 ? 1 : 0
-      else tex = s
-      // fine ripple: scales
-      tex = tex * pc + (1 - pc) * (0.5 + 0.5 * Math.sin(70 * s + th * 0.3))
-      // tube shading
-      const c = Math.cos(th), sn = Math.sin(th)
-      const lam = Math.max(0, nx * c * LX + ny * c * LY + sn * LZ)
-      const shade = 0.55 + 0.6 * lam
-      // colour: hues mixed by texture, pulled toward ink, faded down the wake
-      const fade = 0.55 * Math.pow(age, 0.8)
-      const base = mix(colA, colB, tex)
-      let r = ink[0] + (base[0] - ink[0]) * colourAmt
-      let g = ink[1] + (base[1] - ink[1]) * colourAmt
-      let b = ink[2] + (base[2] - ink[2]) * colourAmt
+        // texture in surface coordinates (the loop angle arrives as its cosine and sine)
+        let tex: number
+        if (pattern === 0) tex = 0.5 + 0.5 * Math.sin(2 * Math.PI * pf * s + ci * 1.7)
+        else if (pattern === 1) tex = 0.5 + 0.5 * (cth * Math.cos(pf * 0.3) + sth * Math.sin(pf * 0.3))
+        else if (pattern === 2) tex = hash2(Math.floor(s * pf * 1.5) + ci * 97, (sth > 0 ? 3 : 0) + (cth > 0.3 ? 1 : cth < -0.3 ? 2 : 0)) > 0.62 ? 1 : 0
+        else tex = s
+        // fine ripple: scales
+        tex = tex * pc + (1 - pc) * (0.5 + 0.5 * Math.sin(70 * s) * cth)
+        // tube shading
+        const lam = Math.max(0, nx * cth * LX + ny * cth * LY + sth * LZ)
+        const shade = 0.55 + 0.6 * lam
+        // colour: hues mixed by texture, pulled toward ink, faded down the wake
+        const fade = 0.55 * fadeA
+      const b0 = colA[0] + (colB[0] - colA[0]) * tex
+      const b1 = colA[1] + (colB[1] - colA[1]) * tex
+      const b2 = colA[2] + (colB[2] - colA[2]) * tex
+      let r = ink[0] + (b0 - ink[0]) * colourAmt
+      let g = ink[1] + (b1 - ink[1]) * colourAmt
+      let b = ink[2] + (b2 - ink[2]) * colourAmt
       r = Math.min(255, r * shade) * (1 - fade) + paper[0] * fade
       g = Math.min(255, g * shade) * (1 - fade) + paper[1] * fade
       b = Math.min(255, b * shade) * (1 - fade) + paper[2] * fade
         const idx = gy * gw + gx
+        if (count[idx] === 0) touched[nTouched++] = idx
         count[idx] += 1
         sumR[idx] += r
         sumG[idx] += g
@@ -215,21 +242,17 @@ export class PixelRenderer {
         }
       })
     })
-    const sctx = this.scratch.getContext('2d')!
-    if (!this.img) this.img = sctx.createImageData(gw, gh)
-    const data = this.img.data
+    this.nTouched = nTouched
     const k = (0.32 * density) / ((this.cell * this.cell) / 4)
     const spread = 48 // dither amplitude in 8-bit units
-    for (let y = 0; y < gh; y++) {
-      const row = BAYER8[y & 7]
-      for (let x = 0; x < gw; x++) {
-        const i = y * gw + x
+    for (let j = 0; j < nTouched; j++) {
+      const i = touched[j]
+      {
+        const x = i % gw
+        const y = (i - x) / gw
+        const row = BAYER8[y & 7]
         const o = i * 4
         const n = count[i]
-        if (n === 0) {
-          data[o] = paper[0]; data[o + 1] = paper[1]; data[o + 2] = paper[2]; data[o + 3] = 255
-          continue
-        }
         const cov = 1 - Math.exp(-k * n)
         const d = (row[x & 7] + 0.5) / 64 - 0.5
         const r = paper[0] + (sumR[i] / n - paper[0]) * cov + d * spread
