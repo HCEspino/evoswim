@@ -28,6 +28,8 @@ test('symmetric travelling wave swims head-first', () => {
   const speedBL = dx / 10 // body lengths per second
   console.log(`  forward ${dx.toFixed(3)} BL in 10 s (${speedBL.toFixed(3)} BL/s), drift y=${cy.toFixed(3)}, heading=${s.heading().toFixed(3)}`)
   assert.ok(dx > 1, `expected head-first motion, got dx=${dx}`)
+  // facing -x: heading near ±π
+  assert.ok(Math.abs(Math.abs(s.heading()) - Math.PI) < 0.3, `expected heading near π, got ${s.heading()}`)
   assert.ok(Math.abs(cy) < 0.5 * dx, `expected limited lateral drift, got y=${cy}`)
 })
 
@@ -71,7 +73,7 @@ test('a uniform bend offset turns the body', () => {
     s.stepWithJoints(target, DT)
   }
   console.log(`  heading after bias: ${s.heading().toFixed(3)}`)
-  assert.ok(Math.abs(s.heading()) > 0.5)
+  assert.ok(Math.abs(Math.abs(s.heading()) - Math.PI) > 0.5)
 })
 
 test('deterministic across runs', () => {

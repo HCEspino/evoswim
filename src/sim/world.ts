@@ -1,28 +1,44 @@
 /**
- * Episodes: a swimmer, a goal, a fixed horizon. Fitness is distance closed
- * toward the goal, minus an energy term so the body does not thrash.
+ * Episodes: a swimmer chasing a sequence of goals for a fixed horizon.
+ * Reaching a goal (capture radius) spawns the next one, so the only way to
+ * score well is to steer, arrive, and turn to the next: a timed orbit that
+ * happens to pass through one goal does not pay. Fitness is total distance
+ * closed, minus an energy term so the body does not thrash.
  */
 import { Swimmer, type SwimmerOptions } from './body'
 import { decode, type CpgParams } from './cpg'
 
 export const DT = 1 / 60
+export const CAPTURE_RADIUS = 0.25
 
 export interface EpisodeSpec {
-  /** goal bearing from the start heading, rad */
-  bearing: number
-  /** goal distance from the start, body lengths */
-  distance: number
+  /** goal positions in the start frame (swimmer at origin, heading +x… see note) */
+  goals: ReadonlyArray<readonly [number, number]>
   /** steps to simulate */
   steps: number
 }
 
-/** Two goals off to either side: steering has to be learned, not assumed. */
-export const DEFAULT_EPISODES: EpisodeSpec[] = [
-  { bearing: +0.9, distance: 3, steps: 6 * 60 },
-  { bearing: -0.9, distance: 3, steps: 6 * 60 },
-]
+/*
+ * Note on frames: the chain is built head-at-origin toward +x, so the swimmer
+ * faces -x at reset. Goals below are written for a swimmer facing -x.
+ */
+const A: EpisodeSpec = {
+  goals: [
+    [-2.5, 1.5], // ahead-left
+    [1.0, 2.0], // behind: a real turn
+    [-2.0, -1.5], // back across
+  ],
+  steps: 9 * 60,
+}
+const mirror = (e: EpisodeSpec): EpisodeSpec => ({
+  goals: e.goals.map(([x, y]) => [x, -y] as const),
+  steps: e.steps,
+})
 
-export const ENERGY_COEF = 0.004
+/** Two mirrored goal courses: steering has to be learned in both directions. */
+export const DEFAULT_EPISODES: EpisodeSpec[] = [A, mirror(A)]
+
+export const ENERGY_COEF = 0.1
 
 export interface EvalResult {
   fitness: number
@@ -49,24 +65,36 @@ export function evaluate(
   return { fitness: closed - ENERGY_COEF * energy, closed, energy }
 }
 
-export function runEpisode(p: CpgParams, swimmer: Swimmer, ep: EpisodeSpec) {
+export interface EpisodeResult {
+  closed: number
+  energy: number
+  /** goals captured within the horizon */
+  captured: number
+}
+
+export function runEpisode(p: CpgParams, swimmer: Swimmer, ep: EpisodeSpec): EpisodeResult {
   swimmer.reset(0, 0, 0)
-  const gx = Math.cos(ep.bearing) * ep.distance
-  const gy = Math.sin(ep.bearing) * ep.distance
-  const [sx, sy] = swimmer.centroid()
-  const d0 = Math.hypot(gx - sx, gy - sy)
-  let dMin = d0
+  let gi = 0
+  let [gx, gy] = ep.goals[0]
+  let [cx, cy] = swimmer.centroid()
+  let d0 = Math.hypot(gx - cx, gy - cy)
+  let closed = 0
+  let captured = 0
   for (let i = 0; i < ep.steps; i++) {
     swimmer.step(p, DT, gx, gy)
-    const [cx, cy] = swimmer.centroid()
+    ;[cx, cy] = swimmer.centroid()
     const d = Math.hypot(gx - cx, gy - cy)
-    if (d < dMin) dMin = d
+    if (d < CAPTURE_RADIUS) {
+      closed += d0
+      captured++
+      gi = (gi + 1) % ep.goals.length
+      ;[gx, gy] = ep.goals[gi]
+      d0 = Math.hypot(gx - cx, gy - cy)
+    }
   }
-  const [cx, cy] = swimmer.centroid()
   const dEnd = Math.hypot(gx - cx, gy - cy)
-  // reward the final distance, with a little credit for the closest approach
-  const closed = 0.8 * (d0 - dEnd) + 0.2 * (d0 - dMin)
-  return { closed, energy: swimmer.energy }
+  closed += d0 - dEnd
+  return { closed, energy: swimmer.energy, captured }
 }
 
 export function makeSwimmer(opts?: SwimmerOptions): Swimmer {

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>evoswim</title>
+    <style>
+      :root {
+        --paper: #f6f6f3;
+        --ink: #1b1d1f;
+        --ink-2: #6b6e72;
+        --accent: #c43c2c;
+        --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --paper: #141516;
+          --ink: #e9e7e2;
+          --ink-2: #8d8b86;
+          --accent: #e2543f;
+        }
+      }
+      :root[data-theme="dark"] {
+        --paper: #141516;
+        --ink: #e9e7e2;
+        --ink-2: #8d8b86;
+        --accent: #e2543f;
+      }
+      html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); }
+      body { font: 13px/1.4 var(--mono); display: flex; flex-direction: column; min-height: 100vh; }
+      canvas { display: block; width: 100%; flex: 1; cursor: crosshair; touch-action: manipulation; }
+      .bar { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding: 8px 16px; border-top: 1px solid color-mix(in srgb, var(--ink) 15%, transparent); }
+      .bar .stat { color: var(--ink-2); white-space: nowrap; }
+      .bar .stat b { color: var(--ink); font-weight: 500; }
+      button { font: inherit; color: var(--ink); background: transparent; border: 1px solid color-mix(in srgb, var(--ink) 35%, transparent); border-radius: 3px; padding: 3px 9px; cursor: pointer; }
+      button:hover { border-color: var(--ink); }
+      button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+      .spacer { flex: 1; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c" aria-label="evolved swimmer"></canvas>
+    <div class="bar">
+      <button id="evolve">evolve from scratch</button>
+      <button id="champion">champion</button>
+      <button id="mode" aria-pressed="true">cloud</button>
+      <span class="stat">gen <b id="gen">–</b></span>
+      <span class="stat">best <b id="best">–</b></span>
+      <span class="stat">goals <b id="goals">0</b></span>
+      <span class="stat" id="hint">click to move the goal</span>
+      <span class="spacer"></span>
+      <button id="theme">theme</button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
