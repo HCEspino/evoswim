@@ -1,7 +1,7 @@
 /**
  * MAP-Elites: a grid of the best swimmer per body-plan cell, so selection
  * keeps variety instead of collapsing onto one fastest gait. Cells are
- * (limb count) × (total limb length / body length). Swimming to the goal is
+ * (limb count) × (longest limb / body length). Swimming to the goal is
  * the entry fee; the look comes from where in the grid a creature sits and
  * from fitness-neutral plumage genes that drift freely.
  *
@@ -13,8 +13,9 @@ import { MAX_SLOTS, SLOT_GENES, describe } from '../sim/morphology'
 import { evaluate, type EpisodeSpec } from '../sim/world'
 
 export const COLS = 9 // limb count 0..8
-export const ROWS = 8 // limb reach bins of 0.3 BL
-export const REACH_BIN = 0.3
+export const ROWS = 8 // longest-limb bins
+export const REACH_MIN = 0.12
+export const REACH_BIN = 0.06 // 0.12 .. 0.60 BL in 8 bins
 
 export interface Cell {
   genome: number[]
@@ -36,7 +37,7 @@ export interface ArchiveJson {
 
 export function cellIndex(limbCount: number, limbReach: number): number {
   const col = Math.min(COLS - 1, limbCount)
-  const row = Math.min(ROWS - 1, Math.floor(limbReach / REACH_BIN))
+  const row = limbCount === 0 ? 0 : Math.max(0, Math.min(ROWS - 1, Math.floor((limbReach - REACH_MIN) / REACH_BIN)))
   return row * COLS + col
 }
 

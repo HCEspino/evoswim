@@ -112,9 +112,13 @@ export function spineOnly(spineSegments = 12): Morphology {
   }
 }
 
-/** Descriptors used by the archive: limb count and total limb length / body length. */
+/**
+ * Descriptors used by the archive: limb count and the longest limb (body
+ * lengths). Longest, not total, so creatures with a few long trailing limbs
+ * hold their own cells instead of losing to many short stubs.
+ */
 export function describe(m: Morphology): { limbCount: number; limbReach: number } {
   let reach = 0
-  for (const l of m.limbs) reach += l.length
+  for (const l of m.limbs) if (l.length > reach) reach = l.length
   return { limbCount: m.limbs.length, limbReach: reach }
 }

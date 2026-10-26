@@ -11,7 +11,7 @@
  */
 import archiveJson from './evolve/archive.json'
 import type { ArchiveJson, Cell } from './evolve/map'
-import { COLS, ROWS, REACH_BIN } from './evolve/map'
+import { COLS, ROWS, REACH_BIN, REACH_MIN } from './evolve/map'
 import { Scene } from './sim/scene'
 import { DT } from './sim/world'
 import { mulberry32 } from './sim/rng'
@@ -128,11 +128,11 @@ function paintGrid(): void {
     if (!c) {
       b.disabled = true
       b.style.setProperty('--f', '0')
-      b.title = `limbs ${col}, reach ${(row * REACH_BIN).toFixed(1)}–${((row + 1) * REACH_BIN).toFixed(1)}: empty`
+      b.title = `limbs ${col}, longest limb ${(REACH_MIN + row * REACH_BIN).toFixed(2)}–${(REACH_MIN + (row + 1) * REACH_BIN).toFixed(2)} BL: empty`
     } else {
       b.disabled = false
       b.style.setProperty('--f', String(Math.round(12 + 78 * Math.max(0, c.fitness) / m)))
-      b.title = `limbs ${c.limbCount}, reach ${c.limbReach.toFixed(2)} BL, fitness ${c.fitness.toFixed(2)}, ${c.freq.toFixed(2)} Hz`
+      b.title = `limbs ${c.limbCount}, longest limb ${c.limbReach.toFixed(2)} BL, fitness ${c.fitness.toFixed(2)}, ${c.freq.toFixed(2)} Hz`
     }
     b.setAttribute('aria-pressed', String(i === selected))
     b.setAttribute('aria-label', b.title)
@@ -155,7 +155,7 @@ function hud(): void {
   el('goals').textContent = String(scene.captures)
   const c = cells[selected]
   el('who').textContent = c
-    ? `limbs ${c.limbCount} · reach ${c.limbReach.toFixed(2)} · fit ${c.fitness.toFixed(1)} · ${c.freq.toFixed(1)} Hz`
+    ? `limbs ${c.limbCount} · longest ${c.limbReach.toFixed(2)} · fit ${c.fitness.toFixed(1)} · ${c.freq.toFixed(1)} Hz`
     : 'random body'
   const filled = cells.filter(Boolean).length
   const k = evals >= 1000 ? `${(evals / 1000).toFixed(evals >= 100000 ? 0 : 1)}k` : String(evals)
