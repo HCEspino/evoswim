@@ -101,7 +101,8 @@ export class Aquarium {
   private rafId = 0
   private last = 0
   private acc = 0
-  private visible = true
+  private tankVisible = true
+  private lineageVisible = false
   private readonly io: IntersectionObserver
   private readonly frozen: boolean
   private destroyed = false
@@ -124,11 +125,15 @@ export class Aquarium {
       const c = this.cells[cellIndex]!
       this.swims.push({ cell: cellIndex, scene: new Scene(c.genome, { seed: this.o.seed * 100 + i, route: routes[i], u0: rng() * 2 * Math.PI }) })
     })
-    this.io = new IntersectionObserver(([e]) => {
-      this.visible = e.isIntersecting
-      if (this.visible && !this.frozen) this.start()
+    this.io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.target === opts.canvas) this.tankVisible = e.isIntersecting
+        else if (e.target === opts.lineage) this.lineageVisible = e.isIntersecting
+      }
+      if ((this.tankVisible || this.lineageVisible) && !this.frozen) this.start()
     })
     this.io.observe(opts.canvas)
+    this.io.observe(opts.lineage)
     this.bindPointer()
     this.resize()
     if (this.frozen) {
@@ -241,7 +246,8 @@ export class Aquarium {
       const { sx, sy } = toWorld(e)
       this.pointer = { x: sx, y: sy }
       const hit = this.hitTest(this.cam.toWorldX(sx), this.cam.toWorldY(sy))
-      if (hit !== this.hovered) {
+      // sticky: open water does not clear the panel, only another swimmer or leaving the tank does
+      if (hit !== null && hit !== this.hovered) {
         this.hovered = hit
         this.syncPanel()
         this.emit()
@@ -346,6 +352,10 @@ export class Aquarium {
   private drawAll(lag: number): void {
     const pal = this.o.palette()
     const { ctx, cam, dpr } = this
+    if (!this.tankVisible && !this.frozen) {
+      this.drawMinis(pal, lag)
+      return
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.fillStyle = pal.paper
     ctx.fillRect(0, 0, cam.width, cam.height)
@@ -372,11 +382,19 @@ export class Aquarium {
       }
     }
     if (this.pointer && this.fine && !this.o.linesMode) this.drawLens(lag, pal, layers)
-    for (const m of this.minis) {
-      m.ctx.setTransform(m.dpr, 0, 0, m.dpr, 0, 0)
-      m.ctx.fillStyle = pal.paper
-      m.ctx.fillRect(0, 0, m.cam.width, m.cam.height)
-      m.pixel.draw(m.ctx, m.scene, m.cam, pal, m.dpr, lag, 9000)
+    this.drawMinis(pal, lag)
+  }
+
+  private drawMinis(pal: Palette, lag: number): void {
+    if (this.lineageVisible || this.frozen) {
+      for (const m of this.minis) {
+        const [mx, my] = m.scene.swimmer.centroid()
+        m.cam.keepInView(mx, my, 16, 0.02)
+        m.ctx.setTransform(m.dpr, 0, 0, m.dpr, 0, 0)
+        m.ctx.fillStyle = pal.paper
+        m.ctx.fillRect(0, 0, m.cam.width, m.cam.height)
+        m.pixel.draw(m.ctx, m.scene, m.cam, pal, m.dpr, lag, 9000)
+      }
     }
   }
 
@@ -440,7 +458,7 @@ export class Aquarium {
       for (const m of this.minis) m.scene.step(DT)
     }
     this.drawAll(Math.max(0, Math.min(1, 1 - this.acc / DT)))
-    if (this.visible) this.rafId = requestAnimationFrame(this.frame)
+    if (this.tankVisible || this.lineageVisible) this.rafId = requestAnimationFrame(this.frame)
   }
 
   private freeze(): void {
