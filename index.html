@@ -18,7 +18,9 @@
       .spacer { flex: 1; }
       main { display: flex; flex-direction: column; gap: 16px; padding: 16px; }
       canvas#tank { display: block; width: 100%; aspect-ratio: 16 / 9; max-height: calc(100vh - 110px); border: 1px solid var(--rule); border-radius: 2px; }
-      .panel { display: grid; grid-template-columns: 18ch minmax(0, 1fr) minmax(0, 1.1fr); gap: 28px; align-items: start; min-width: 0; }
+      .panel { display: grid; grid-template-columns: 300px minmax(0, 1fr) minmax(0, 1.1fr); gap: 28px; align-items: start; min-width: 0; }
+      canvas#closeup { display: block; width: 100%; aspect-ratio: 16 / 10; border: 1px solid var(--rule); border-radius: 2px; }
+      canvas#closeup[hidden] { display: none; }
       .panel > .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
       .panel dl { display: grid; grid-template-columns: 8ch 1fr; row-gap: 4px; column-gap: 12px; margin: 0; }
       .panel dt { color: var(--ink-2); }
@@ -44,6 +46,7 @@
       <section class="panel" id="panel">
         <div class="col">
           <div class="empty" id="empty">Nothing under the glass yet.</div>
+          <canvas id="closeup" hidden aria-label="close-up of the chosen swimmer"></canvas>
           <dl id="lines" hidden></dl>
         </div>
         <div class="col">

@@ -29,6 +29,7 @@ function palette(): Palette {
 const aq = new Aquarium({
   canvas: el('tank') as HTMLCanvasElement,
   lineage: el('lineage'),
+  closeup: el('closeup') as HTMLCanvasElement,
   archive: archiveJson as ArchiveJson,
   castSize: Number(q.get('cast') ?? 10) || 10,
   seed: Number(q.get('seed') ?? 7) || 7,
@@ -40,7 +41,8 @@ const aq = new Aquarium({
     el('arch').textContent = `${kEvals(s.evals)} evaluations`
     const c = s.shown
     el('empty').hidden = !!c
-    for (const id of ['lines', 'h-move', 'formula', 'h-lin']) el(id).hidden = !c
+    for (const id of ['lines', 'h-move', 'formula', 'h-lin', 'closeup']) el(id).hidden = !c
+    if (c) aq.relayout()
     if (c) {
       el('lines').innerHTML = [
         ['limbs', String(c.limbCount)],

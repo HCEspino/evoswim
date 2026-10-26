@@ -20,6 +20,8 @@ export const WORLD_W = 13
 export const WORLD_H = WORLD_W * (9 / 16)
 export const LENS_DIAMETER = 240
 export const LENS_MAG = 3
+/** world width of the close-up, body lengths */
+export const CLOSEUP_WORLD_W = 4.6
 /** the glass never covers more than this fraction of the tank's width */
 const LENS_MAX_FRACTION = 0.34
 
@@ -27,6 +29,8 @@ export interface AquariumOptions {
   canvas: HTMLCanvasElement
   /** where the lineage tanks go */
   lineage: HTMLElement
+  /** a close-up that tracks the shown swimmer; the host shows and hides it */
+  closeup?: HTMLCanvasElement
   archive: ArchiveJson
   castSize?: number
   seed?: number
@@ -85,6 +89,9 @@ export class Aquarium {
   private readonly lensPixel: PixelRenderer
   private readonly lensCanvas: HTMLCanvasElement
   private readonly lensCam = new Camera()
+  private readonly closeupCam = new Camera()
+  private readonly closeupPixel = new PixelRenderer(document.createElement('canvas'))
+  private closeupDpr = 1
   private dpr = 1
   private lensD = LENS_DIAMETER
   private points = 60000
@@ -218,6 +225,25 @@ export class Aquarium {
     this.lensCanvas.height = this.lensD * this.dpr
     this.lensCam.frame(this.lensD, this.lensD, WORLD_W / LENS_MAG / (r.width / this.lensD))
     for (const m of this.minis) this.sizeMini(m)
+    this.sizeCloseup()
+    if (this.frozen) this.drawAll(0)
+  }
+
+  private sizeCloseup(): void {
+    const cv = this.o.closeup
+    if (!cv) return
+    const r = cv.getBoundingClientRect()
+    if (r.width < 2) return
+    this.closeupDpr = Math.min(2, window.devicePixelRatio || 1)
+    cv.width = Math.round(r.width * this.closeupDpr)
+    cv.height = Math.round(r.height * this.closeupDpr)
+    this.closeupCam.frame(r.width, r.height, CLOSEUP_WORLD_W)
+  }
+
+  /** Call after the host shows the close-up canvas, so it gets measured. */
+  relayout(): void {
+    this.sizeCloseup()
+    for (const m of this.minis) this.sizeMini(m)
     if (this.frozen) this.drawAll(0)
   }
 
@@ -294,6 +320,11 @@ export class Aquarium {
     const idx = this.pinned ?? this.hovered
     if (idx === this.panelFor) return
     this.panelFor = idx
+    const s = idx === null ? null : this.swims.find((x) => x.cell === idx)
+    if (s) {
+      const [cx, cy] = s.scene.swimmer.centroid()
+      this.closeupCam.follow(cx, cy, 1)
+    }
     this.clearMinis()
     if (idx === null) return
     const c = this.cells[idx]
@@ -382,7 +413,27 @@ export class Aquarium {
       }
     }
     if (this.pointer && this.fine && !this.o.linesMode) this.drawLens(lag, pal, layers)
+    this.drawCloseup(pal, lag)
     this.drawMinis(pal, lag)
+  }
+
+  /** The close-up: a camera that stays on the shown swimmer, from the same simulation. */
+  private drawCloseup(pal: Palette, lag: number): void {
+    const cv = this.o.closeup
+    const shown = this.pinned ?? this.hovered
+    if (!cv || shown === null || cv.hidden || cv.width === 0) return
+    const s = this.swims.find((x) => x.cell === shown)
+    if (!s) return
+    const cam = this.closeupCam
+    const [cx, cy] = s.scene.swimmer.centroid()
+    cam.follow(cx, cy, 0.08)
+    const ctx = cv.getContext('2d')!
+    const dpr = this.closeupDpr
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.fillStyle = pal.paper
+    ctx.fillRect(0, 0, cam.width, cam.height)
+    if (this.o.linesMode) drawLines(ctx, s.scene, cam, pal, lag)
+    else this.closeupPixel.draw(ctx, s.scene, cam, pal, dpr, lag, 16000)
   }
 
   private drawMinis(pal: Palette, lag: number): void {
