@@ -1,19 +1,5 @@
 # evoswim
 
-Evolved swimmers in a resistive fluid, drawn as a dithered point cloud.
-Live at https://harrisonespino.com/evoswim.
-
-A swimmer is a segmented spine with up to four limbs, driven by a central pattern
-generator through compliant joints, in a fluid where drag across a segment is ten
-times the drag along it. Body plans and controllers are searched with MAP-Elites,
-so the archive holds the fittest swimmer for every combination of limb count and
-limb length rather than a single optimum. The skin is a point sheet laid along each
-body and back through its own wake, shaded as a tube, textured and coloured by
-plumage genes, and ordered-dithered into a small palette.
-
-The method is written up in [docs/METHOD.md](docs/METHOD.md). The visual starting
-point was a tweet-sized p5.js sketch by @yuruyurau, kept verbatim in `reference/`.
-
 ## Layout
 
 - `src/sim` body, fluid, controller, routes, scene. No DOM.
